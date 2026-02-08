@@ -3,6 +3,7 @@ package com.logistics;
 import com.logistics.core.bootstrap.DomainBootstrap;
 import com.logistics.core.lib.power.AbstractEngineBlockEntity;
 import com.logistics.power.render.EngineBlockEntityRenderer;
+import com.logistics.power.render.RedstoneEngineBlockEntityRenderer;
 import com.logistics.power.screen.StirlingEngineScreen;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -25,7 +26,7 @@ public final class LogisticsPowerClient implements DomainBootstrap {
         LOGGER.info("Registering power (client)");
         // Register engine block entity renderers
         BlockEntityRenderers.register(
-                LogisticsPower.ENTITY.REDSTONE_ENGINE_BLOCK_ENTITY, EngineBlockEntityRenderer::new);
+                LogisticsPower.ENTITY.REDSTONE_ENGINE_BLOCK_ENTITY, RedstoneEngineBlockEntityRenderer::new);
         BlockEntityRenderers.register(
                 LogisticsPower.ENTITY.STIRLING_ENGINE_BLOCK_ENTITY, EngineBlockEntityRenderer::new);
         BlockEntityRenderers.register(

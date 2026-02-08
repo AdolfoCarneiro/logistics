@@ -10,6 +10,7 @@ import com.logistics.power.engine.block.entity.CreativeEngineBlockEntity;
 import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
 import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
 import com.logistics.power.engine.ui.StirlingEngineScreenHandler;
+import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
@@ -18,6 +19,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import team.reborn.energy.api.EnergyStorage;
 
@@ -94,7 +96,7 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
         // Engines - directional output only
         EnergyStorage.SIDED.registerForBlockEntity(
                 (engine, direction) -> engine.isOutputDirection(direction)
-                        ? engine.energyStorage.getSideStorage(direction)
+                        ? engine.battery.getSideStorage(direction)
                         : null,
                 ENTITY.REDSTONE_ENGINE_BLOCK_ENTITY);
 

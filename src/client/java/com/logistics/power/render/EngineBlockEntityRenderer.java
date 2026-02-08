@@ -112,9 +112,7 @@ public class EngineBlockEntityRenderer implements BlockEntityRenderer<AbstractEn
         state.stage = entity.getBlockState().getValue(STAGE);
 
         // Determine engine type
-        if (entity instanceof RedstoneEngineBlockEntity) {
-            state.engineType = EngineRenderState.EngineType.REDSTONE;
-        } else if (entity instanceof StirlingEngineBlockEntity) {
+        if (entity instanceof StirlingEngineBlockEntity) {
             state.engineType = EngineRenderState.EngineType.STIRLING;
         } else if (entity instanceof CreativeEngineBlockEntity) {
             state.engineType = EngineRenderState.EngineType.CREATIVE;
