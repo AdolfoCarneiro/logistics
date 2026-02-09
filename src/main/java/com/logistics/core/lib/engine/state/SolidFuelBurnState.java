@@ -18,7 +18,7 @@ public final class SolidFuelBurnState {
     public double getRatio() {
         if (fuelTicks <= 0) return 0.0d;
 
-        return (double) burnTicks / (double) fuelTicks;
+        return 1 - (double) burnTicks / (double) fuelTicks;
     }
 
     public void reset() { burnTicks = 0; }

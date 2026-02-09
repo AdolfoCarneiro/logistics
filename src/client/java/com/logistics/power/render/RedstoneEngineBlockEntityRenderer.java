@@ -74,7 +74,7 @@ public final class RedstoneEngineBlockEntityRenderer
         public BlockPos pos;
         public Direction facing = Direction.UP;
 
-        public boolean powered;
+        public boolean running;
         public float pistonSpeed;
         public float progress01;
 
@@ -112,8 +112,8 @@ public final class RedstoneEngineBlockEntityRenderer
         BlockState state = be.getBlockState();
         out.facing = state.getValue(BlockStateProperties.FACING);
 
-        // For Redstone: "running" == powered
-        out.powered = state.getValue(RedstoneEngineBlock.POWERED);
+        // Delegate running logic to BE
+        out.running = be.isRunning();
 
         // Compute stage from temperature ratio
         long tempC = be.getTemperatureC();
@@ -125,7 +125,7 @@ public final class RedstoneEngineBlockEntityRenderer
 
         // Smooth progress from cache (client-side)
         AnimCache cache = CACHE.computeIfAbsent(out.pos, k -> new AnimCache());
-        out.progress01 = updateProgress(cache, out.pistonSpeed, out.powered);
+        out.progress01 = updateProgress(cache, out.pistonSpeed, out.running);
     }
 
     private static final float DEFAULT_PISTON_SPEED = 0.02f;

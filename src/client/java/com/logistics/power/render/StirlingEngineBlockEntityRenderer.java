@@ -1,10 +1,9 @@
 package com.logistics.power.render;
 
 import com.logistics.LogisticsMod;
-import com.logistics.core.lib.engine.RedstoneEngineSpec;
+import com.logistics.core.lib.engine.StirlingEngineSpec;
 import com.logistics.core.render.ModelRegistry;
-import com.logistics.power.engine.block.RedstoneEngineBlock;
-import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
+import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
@@ -28,7 +27,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class StirlingEngineBlockEntityRenderer
-        implements BlockEntityRenderer<RedstoneEngineBlockEntity, StirlingEngineBlockEntityRenderer.State> {
+        implements BlockEntityRenderer<StirlingEngineBlockEntity, StirlingEngineBlockEntityRenderer.State> {
 
     // Shared model identifiers
     private static final Identifier TRUNK_BASE_MODEL =
@@ -38,7 +37,7 @@ public final class StirlingEngineBlockEntityRenderer
     private static final Identifier CHAMBER_MODEL =
             Identifier.fromNamespaceAndPath(LogisticsMod.MOD_ID, "block/power/engine_chamber");
 
-    // Redstone-specific base models
+    // Stirling-specific base models
     private static final Identifier STIRLING_BASE_STATIC =
             Identifier.fromNamespaceAndPath(LogisticsMod.MOD_ID, "block/power/stirling_engine_base_static");
     private static final Identifier STIRLING_BASE_MOVING =
@@ -75,7 +74,7 @@ public final class StirlingEngineBlockEntityRenderer
         public BlockPos pos;
         public Direction facing = Direction.UP;
 
-        public boolean powered;
+        public boolean running;
         public float pistonSpeed;
         public float progress01;
 
@@ -100,7 +99,7 @@ public final class StirlingEngineBlockEntityRenderer
 
     @Override
     public void extractRenderState(
-            RedstoneEngineBlockEntity be,
+            StirlingEngineBlockEntity be,
             State out,
             float tickDelta,
             Vec3 cameraPos,
@@ -113,8 +112,8 @@ public final class StirlingEngineBlockEntityRenderer
         BlockState state = be.getBlockState();
         out.facing = state.getValue(BlockStateProperties.FACING);
 
-        // For Redstone: "running" == powered
-        out.powered = state.getValue(RedstoneEngineBlock.POWERED);
+        // Delegate running logic to BE
+        out.running = be.isRunning();
 
         // Compute stage from temperature ratio
         long tempC = be.getTemperatureC();
@@ -126,7 +125,7 @@ public final class StirlingEngineBlockEntityRenderer
 
         // Smooth progress from cache (client-side)
         AnimCache cache = CACHE.computeIfAbsent(out.pos, k -> new AnimCache());
-        out.progress01 = updateProgress(cache, out.pistonSpeed, out.powered);
+        out.progress01 = updateProgress(cache, out.pistonSpeed, out.running);
     }
 
     private static final float DEFAULT_PISTON_SPEED = 0.02f;
@@ -253,7 +252,7 @@ public final class StirlingEngineBlockEntityRenderer
     }
 
     private static float[] trunkColor(State s) {
-        // Redstone can't overheat; keep the classic “breathing” effect in HOT:
+        // Stirling can't overheat; keep the classic “breathing” effect in HOT:
         // expansion (0..0.5): RED, compression (0.5..1): YELLOW
         if (s.stage == Stage.HOT) {
             return s.progress01 < 0.5f ? COLOR_RED : COLOR_YELLOW;
@@ -269,13 +268,13 @@ public final class StirlingEngineBlockEntityRenderer
     }
 
     // -------- Stage from temperature --------
-    // Redstone temp model: MIN_TEMP..MAX_TEMP, ratio bands determine stage.
+    // Stirling temp model: MIN_TEMP..MAX_TEMP, ratio bands determine stage.
 
     private static double tempRatio(long tempC) {
-        // Keep in sync with your Redstone spec constants.
+        // Keep in sync with your Stirling spec constants.
         // If you don’t want to duplicate, add public MIN/MAX getters on the BE/spec later.
-        final long min = RedstoneEngineSpec.MIN_TEMP;
-        final long max = RedstoneEngineSpec.MAX_TEMP;
+        final long min = StirlingEngineSpec.MIN_TEMP;
+        final long max = StirlingEngineSpec.MAX_TEMP;
         if (max <= min) return 0.0;
         double r = (double) (tempC - min) / (double) (max - min);
         if (r < 0.0) return 0.0;

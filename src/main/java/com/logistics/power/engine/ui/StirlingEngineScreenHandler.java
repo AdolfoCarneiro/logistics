@@ -147,72 +147,19 @@ public class StirlingEngineScreenHandler extends AbstractContainerMenu {
         inventory.stopOpen(player);
     }
 
-    // Getters for GUI rendering
-    public int getBurnTime() {
-        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_BURN_TIME);
-    }
-
-    public int getFuelTime() {
-        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_FUEL_TIME);
-    }
-
-    public int getHeat() {
-        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_HEAT);
-    }
-
-    public int getEnergy() {
-        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_ENERGY);
-    }
-
-    /**
-     * Gets the current generation rate in RF per tick (scaled by 100).
-     * Returns the raw property value which is currentGeneration * 100.
-     */
-    public int getGenerationScaled() {
-        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_GENERATION);
-    }
-
-    /**
-     * Gets the current generation rate as a displayable value (RF/t).
-     * Generation ranges from 3 to 10 RF/t.
-     */
-    public float getGenerationRate() {
-        return getGenerationScaled() / 100.0f;
-    }
-
     /**
      * Gets the burn progress as a fraction (0.0 to 1.0).
      * Used to render the flame icon in the GUI.
      */
     public float getBurnProgress() {
-        int fuelTime = getFuelTime();
-        if (fuelTime == 0) {
-            return 0;
-        }
-        return 1.0f - ((float) getBurnTime() / fuelTime);
-    }
-
-    /**
-     * Gets the heat level as a fraction (0.0 to 1.0).
-     * Used to render the heat gauge in the GUI.
-     * Max heat is 250 (aligned with BuildCraft).
-     */
-    public float getHeatProgress() {
-        return getHeat() / 250.0f;
+        return propertyDelegate.get(StirlingEngineBlockEntity.PROPERTY_BURN_RATIO) / 1000.0f;
     }
 
     /**
      * Checks if the engine is currently burning fuel.
      */
     public boolean isBurning() {
-        return getBurnTime() > 0;
-    }
-
-    /**
-     * Checks if the engine is overheated (100% heat).
-     */
-    public boolean isOverheated() {
-        return getHeatProgress() >= 1.0f;
+        return getBurnProgress() > 0;
     }
 
     /**

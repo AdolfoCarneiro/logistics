@@ -11,7 +11,7 @@ public final class StirlingEngineSpec {
     public static final long CAPACITY = 10_000L;
     public static final long DRAIN_RATE = 10L;
 
-    private static final double TARGET_RATIO = 0.375;
+    private static final double TARGET_RATIO = 0.652;
     private static final long MIN_GENERATION = 3;
     private static final long MAX_GENERATION = 10;
 

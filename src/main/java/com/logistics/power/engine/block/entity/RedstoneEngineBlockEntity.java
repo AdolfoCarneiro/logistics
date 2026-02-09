@@ -161,6 +161,11 @@ public final class RedstoneEngineBlockEntity extends BlockEntity {
         return spec.temp.celsius();
     }
 
+    public boolean isRunning() {
+        if (level == null) return false;
+        return isRedstonePowered(level, getBlockState());
+    }
+
     // =========================
     // BE update packets for render data
     // =========================

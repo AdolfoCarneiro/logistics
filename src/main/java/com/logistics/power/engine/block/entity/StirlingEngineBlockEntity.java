@@ -6,13 +6,23 @@ import com.logistics.core.lib.engine.state.EngineCycleState;
 import com.logistics.core.lib.engine.storage.EngineSerde;
 import com.logistics.core.lib.power.SidedEnergyProvider;
 import com.logistics.power.engine.block.StirlingEngineBlock;
+import com.logistics.power.engine.ui.StirlingEngineScreenHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
+import net.minecraft.world.inventory.ContainerData;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -28,10 +38,13 @@ import team.reborn.energy.api.EnergyStorageUtil;
  * - delegates behavior to {@link StirlingEngineSpec}
  * - handles Minecraft/TR energy IO + persistence + output direction
  */
-public final class StirlingEngineBlockEntity extends BlockEntity {
+public final class StirlingEngineBlockEntity extends BlockEntity implements Container, ExtendedScreenHandlerFactory<BlockPos> {
 
     private final StirlingEngineSpec spec = new StirlingEngineSpec();
     private boolean overheated = false;
+
+    // 1-slot fuel inventory (slot 0)
+    private ItemStack fuelStack = ItemStack.EMPTY;
 
     // TR energy container (authoritative for external IO).
     // We mirror spec.energy <-> battery each tick and on load.
@@ -88,8 +101,7 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
 
         // Only ignite new fuel if we're powered and not overheated.
         if (powered && !isBurning && !overheated) {
-            // TODO: tryIgniteFuelFromInventory();
-            // If ignition succeeds, isBurning should become true.
+            tryIgniteFuelFromInventory();
             isBurning = spec.fuel.isBurning();
         }
 
@@ -172,6 +184,29 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
         return Math.max(0L, before - after);
     }
 
+    /**
+     * Attempts to ignite fuel from the inventory.
+     * If successful, consumes one item and starts burning.
+     */
+    private void tryIgniteFuelFromInventory() {
+        if (fuelStack.isEmpty()) return;
+
+        assert level != null;
+        int burnTime = level.fuelValues().burnDuration(fuelStack);
+        if (burnTime <= 0) return;
+
+        // Start burning
+        spec.fuel.ignite(burnTime);
+
+        // Consume one item
+        fuelStack.shrink(1);
+        if (fuelStack.isEmpty()) {
+            fuelStack = ItemStack.EMPTY;
+        }
+
+        setChanged();
+    }
+
     // =========================
     // Client rendering accessors
     // =========================
@@ -186,6 +221,12 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
 
     public long getTemperatureC() {
         return spec.temp.celsius();
+    }
+
+    public boolean isRunning() {
+        if (level == null) return false;
+        boolean powered = isRedstonePowered(level, getBlockState());
+        return powered && spec.fuel.isBurning() && !overheated;
     }
 
     // =========================
@@ -220,7 +261,10 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
 
         CompoundTag root = new CompoundTag();
         CompoundTag engine = EngineSerde.writeSnapshot(snap);
-        engine.putDouble("burnProgress", spec.fuel.getRatio());
+
+        // Send burn ticks to client so isRunning() works for animation
+        engine.putInt("burnTicks", spec.fuel.getBurnTicks());
+
         root.put(EngineSerde.KEY_ENGINE, engine);
         return root;
     }
@@ -239,6 +283,87 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
 
     public boolean isOutputDirection(@Nullable Direction direction) {
         return direction == getOutputDirection();
+    }
+
+    // =========================
+    // Inventory (1-slot fuel)
+    // =========================
+
+    @Override
+    public int getContainerSize() {
+        return 1;
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return fuelStack.isEmpty();
+    }
+
+    @Override
+    public ItemStack getItem(int slot) {
+        return slot == 0 ? fuelStack : ItemStack.EMPTY;
+    }
+
+    @Override
+    public ItemStack removeItem(int slot, int amount) {
+        if (slot != 0 || amount <= 0 || fuelStack.isEmpty()) return ItemStack.EMPTY;
+
+        ItemStack result = fuelStack.split(amount);
+        if (fuelStack.isEmpty()) fuelStack = ItemStack.EMPTY;
+
+        setChanged();
+        return result;
+    }
+
+    @Override
+    public ItemStack removeItemNoUpdate(int slot) {
+        if (slot != 0) return ItemStack.EMPTY;
+
+        ItemStack result = fuelStack;
+        fuelStack = ItemStack.EMPTY;
+        return result;
+    }
+
+    @Override
+    public void setItem(int slot, ItemStack stack) {
+        if (slot != 0) return;
+        fuelStack = (stack == null) ? ItemStack.EMPTY : stack;
+        if (!fuelStack.isEmpty() && fuelStack.getCount() > getMaxStackSize()) {
+            fuelStack.setCount(getMaxStackSize());
+        }
+        setChanged();
+    }
+
+    @Override
+    public int getMaxStackSize() {
+        return 64;
+    }
+
+    @Override
+    public boolean stillValid(Player player) {
+        // Standard distance check for containers.
+        if (level == null) return false;
+        if (level.getBlockEntity(worldPosition) != this) return false;
+        return player.distanceToSqr(
+                worldPosition.getX() + 0.5,
+                worldPosition.getY() + 0.5,
+                worldPosition.getZ() + 0.5
+        ) <= 64.0;
+    }
+
+    @Override
+    public void clearContent() {
+        fuelStack = ItemStack.EMPTY;
+        setChanged();
+    }
+
+    @Override
+    public boolean canPlaceItem(int slot, ItemStack stack) {
+        if (slot != 0) return false;
+        if (stack == null || stack.isEmpty()) return true;
+        // Only accept items that are valid fuels.
+        // (This is conservative; ignition will also validate burn time.)
+        return level != null && level.fuelValues().isFuel(stack);
     }
 
     // =========================
@@ -262,6 +387,7 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
         tag.putInt("burnTicks", spec.fuel.getBurnTicks());
 
         view.store(EngineSerde.KEY_ENGINE, CompoundTag.CODEC, tag);
+        view.store("Fuel", ItemStack.CODEC, fuelStack);
     }
 
     @Override
@@ -284,5 +410,51 @@ public final class StirlingEngineBlockEntity extends BlockEntity {
 
             battery.setEnergy(spec.energy.energy());
         });
+
+        view.read("Fuel", ItemStack.CODEC).ifPresent(stack -> {
+            fuelStack = stack;
+        });
+    }
+
+    public static final int PROPERTY_BURN_RATIO = 0;
+    public static final int PROPERTY_COUNT = 1;
+
+    private final ContainerData data = new ContainerData() {
+        @Override
+        public int get(int index) {
+            if (index == PROPERTY_BURN_RATIO) {
+                return (int)(spec.fuel.getRatio() * 1000.0);
+            }
+            return 0;
+        }
+
+        @Override
+        public void set(int index, int value) {
+            // client-side only; no-op
+        }
+
+        @Override
+        public int getCount() {
+            return PROPERTY_COUNT;
+        }
+    };
+
+    public ContainerData getData() {
+        return data;
+    }
+
+    @Override
+    public Component getDisplayName() {
+        return Component.translatable("block.logistics.power.stirling_engine");
+    }
+
+    @Override
+    public BlockPos getScreenOpeningData(ServerPlayer player) {
+        return this.worldPosition;
+    }
+
+    @Override
+    public @org.jspecify.annotations.Nullable AbstractContainerMenu createMenu(int i, Inventory inventory, Player player) {
+        return new StirlingEngineScreenHandler(i, inventory, this, data);
     }
 }
