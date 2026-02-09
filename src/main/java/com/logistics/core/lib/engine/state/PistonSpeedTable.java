@@ -1,4 +1,4 @@
-package com.logistics.core.lib.engine;
+package com.logistics.core.lib.engine.state;
 
 public final class PistonSpeedTable {
     public static final float TRANSITION = 0.5f;

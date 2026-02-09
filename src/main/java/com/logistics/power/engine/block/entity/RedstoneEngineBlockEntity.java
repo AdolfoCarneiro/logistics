@@ -1,8 +1,8 @@
 package com.logistics.power.engine.block.entity;
 
 import com.logistics.LogisticsPower;
-import com.logistics.core.lib.engine.EngineCycleState;
-import com.logistics.core.lib.engine.EngineSerde;
+import com.logistics.core.lib.engine.state.EngineCycleState;
+import com.logistics.core.lib.engine.storage.EngineSerde;
 import com.logistics.core.lib.engine.RedstoneEngineSpec;
 import com.logistics.core.lib.power.SidedEnergyProvider;
 import com.logistics.power.engine.block.RedstoneEngineBlock;
@@ -106,7 +106,7 @@ public final class RedstoneEngineBlockEntity extends BlockEntity {
         if (res.crossedHalf()) {
             long maxSend = Math.min(RedstoneEngineSpec.RF_ON_OUTPUT, spec.energy.energy());
             if (maxSend > 0) {
-                long sent = sendEnergyPulse(level, state, maxSend);
+                long sent = sendEnergy(level, state, maxSend);
                 if (sent > 0) {
                     spec.energy.remove(sent);
                 }
@@ -125,7 +125,7 @@ public final class RedstoneEngineBlockEntity extends BlockEntity {
      * Moves up to maxSend RF out of the engine to the neighbor on the output face.
      * Returns the amount actually moved.
      */
-    private long sendEnergyPulse(Level level, BlockState state, long maxSend) {
+    private long sendEnergy(Level level, BlockState state, long maxSend) {
         Direction out = getOutputDirection();
         BlockPos targetPos = worldPosition.relative(out);
 

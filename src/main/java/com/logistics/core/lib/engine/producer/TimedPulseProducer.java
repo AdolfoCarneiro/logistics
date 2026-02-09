@@ -1,4 +1,4 @@
-package com.logistics.core.lib.engine;
+package com.logistics.core.lib.engine.producer;
 
 import com.logistics.core.lib.power.EnergyBuffer;
 

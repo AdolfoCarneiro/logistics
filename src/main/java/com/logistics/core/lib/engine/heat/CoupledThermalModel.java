@@ -1,5 +1,6 @@
-package com.logistics.core.lib.engine;
+package com.logistics.core.lib.engine.heat;
 
+import com.logistics.core.lib.engine.state.TemperatureState;
 import com.logistics.core.lib.power.EnergyBuffer;
 
 public final class CoupledThermalModel {

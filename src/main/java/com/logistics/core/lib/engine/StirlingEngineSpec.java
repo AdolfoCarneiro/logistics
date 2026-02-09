@@ -1,24 +1,22 @@
 package com.logistics.core.lib.engine;
 
 import com.logistics.core.lib.engine.drain.PassiveDrain;
-import com.logistics.core.lib.engine.output.PulsedOutput;
-import com.logistics.core.lib.engine.producer.TimedPulseProducer;
-import com.logistics.core.lib.engine.state.EngineCycleState;
-import com.logistics.core.lib.engine.state.HeatStage;
-import com.logistics.core.lib.engine.state.PistonSpeedTable;
-import com.logistics.core.lib.engine.state.TemperatureState;
 import com.logistics.core.lib.engine.heat.CoupledThermalModel;
+import com.logistics.core.lib.engine.output.ProportionalOutput;
+import com.logistics.core.lib.engine.producer.PIDProducer;
+import com.logistics.core.lib.engine.state.*;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class RedstoneEngineSpec {
-    public static final long CAPACITY = 1000L;
+public final class StirlingEngineSpec {
+    public static final long CAPACITY = 10_000L;
     public static final long DRAIN_RATE = 10L;
 
-    public static final long GEN_RF_QTY = 10L;
-    public static final int GEN_RF_PERIOD = 16;
+    private static final double TARGET_RATIO = 0.375;
+    private static final long MIN_GENERATION = 3;
+    private static final long MAX_GENERATION = 10;
 
-    public static final long RF_ON_OUTPUT = 10L;
-    public static final boolean CAN_OVERHEAT = false;
+    public static final long MAX_OUTPUT = 10L;
+    public static final boolean CAN_OVERHEAT = true;
 
     public static final int MIN_TEMP = 20;
     public static final int MAX_TEMP = 250;
@@ -26,11 +24,12 @@ public final class RedstoneEngineSpec {
     public final EnergyBuffer energy = new EnergyBuffer(CAPACITY);
     public final TemperatureState temp = new TemperatureState(MIN_TEMP, MIN_TEMP, MAX_TEMP);
     public final EngineCycleState cycle = new EngineCycleState();
+    public final SolidFuelBurnState fuel = new SolidFuelBurnState();
 
-    public final TimedPulseProducer producer = new TimedPulseProducer(GEN_RF_QTY, GEN_RF_PERIOD);
+    public final PIDProducer producer = new PIDProducer(TARGET_RATIO, MIN_GENERATION, MAX_GENERATION);
     public final PassiveDrain drain = new PassiveDrain(DRAIN_RATE);
     public final CoupledThermalModel thermal = new CoupledThermalModel(MIN_TEMP, MAX_TEMP);
-    public final PulsedOutput output = new PulsedOutput(RF_ON_OUTPUT);
+    public final ProportionalOutput output = new ProportionalOutput(TARGET_RATIO, MAX_OUTPUT);
     public final PistonSpeedTable speeds = new PistonSpeedTable();
 
     public HeatStage stage() {

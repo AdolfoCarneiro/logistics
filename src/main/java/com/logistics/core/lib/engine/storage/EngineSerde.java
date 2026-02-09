@@ -1,4 +1,4 @@
-package com.logistics.core.lib.engine;
+package com.logistics.core.lib.engine.storage;
 
 import com.logistics.core.lib.storage.NbtCompat;
 import net.minecraft.nbt.CompoundTag;

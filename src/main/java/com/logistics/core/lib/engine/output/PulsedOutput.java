@@ -1,11 +1,12 @@
-package com.logistics.core.lib.engine;
+package com.logistics.core.lib.engine.output;
 
+import com.logistics.core.lib.engine.state.EngineCycleState;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class PulseOnHalfCrossingOutputModel {
+public final class PulsedOutput {
     private final long pulseAmount;
 
-    public PulseOnHalfCrossingOutputModel(long pulseAmount) {
+    public PulsedOutput(long pulseAmount) {
         this.pulseAmount = pulseAmount;
     }
 
