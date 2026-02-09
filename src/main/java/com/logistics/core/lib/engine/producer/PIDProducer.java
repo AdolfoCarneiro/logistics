@@ -5,9 +5,9 @@ import com.logistics.power.engine.PIDController;
 
 public final class PIDProducer {
     // PID controller settings (tuned via run/pid_simulator.py)
-    private static final double PID_KP = 0.2;
-    private static final double PID_KI = 0.0002;
-    private static final double PID_KD = 0.3;
+    private static final double PID_KP = 25.0;
+    private static final double PID_KI = 0.03;
+    private static final double PID_KD = 15.0;
 
     private final PIDController pidController = new PIDController(PID_KP, PID_KI, PID_KD);
 
@@ -40,12 +40,6 @@ public final class PIDProducer {
 
         long whole = (long) Math.floor(accumulator);
         long added = energy.add(whole);
-
-        if (energy.ratio() >= 1.0) {
-            accumulator = 0;
-        } else {
-            accumulator -= added;
-        }
 
         if(energy.ratio() >= 1) {
             accumulator = 0;

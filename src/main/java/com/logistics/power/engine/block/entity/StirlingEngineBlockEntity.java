@@ -3,8 +3,10 @@ package com.logistics.power.engine.block.entity;
 import com.logistics.LogisticsPower;
 import com.logistics.core.lib.engine.StirlingEngineSpec;
 import com.logistics.core.lib.engine.state.EngineCycleState;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.engine.storage.EngineSerde;
 import com.logistics.core.lib.power.SidedEnergyProvider;
+import com.logistics.core.lib.support.ProbeResult;
 import com.logistics.power.engine.block.StirlingEngineBlock;
 import com.logistics.power.engine.ui.StirlingEngineScreenHandler;
 import net.minecraft.core.BlockPos;
@@ -42,6 +44,8 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
 
     private final StirlingEngineSpec spec = new StirlingEngineSpec();
     private boolean overheated = false;
+
+    private long tickGeneration = 0;
 
     // 1-slot fuel inventory (slot 0)
     private ItemStack fuelStack = ItemStack.EMPTY;
@@ -109,7 +113,7 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         boolean running = powered && isBurning && !overheated;
 
         // 1) Producer: increase RF
-        spec.producer.tick(running, spec.energy);
+        tickGeneration = spec.producer.tick(running, spec.energy);
 
         // 2) Drain: drains energy while NOT running (per your drain model)
         spec.drain.tick(running, spec.energy);
@@ -117,20 +121,22 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         // 3) Thermal: temp proportional to stored energy ratio
         spec.thermal.update(spec.energy, spec.temp);
 
-        // NOTE: If you later decouple heat/energy, switch this to spec.temp.ratio().
-        overheated = spec.energy.ratio() >= 1.0;
-
         // 4) Overheat latch: clear remaining fuel and stop running.
         if (overheated) {
             spec.cycle.reset();
             spec.producer.reset();
             spec.fuel.reset();
 
+            // TODO: overheat particles
+
             battery.setEnergy(spec.energy.energy());
             syncRenderToClient();
             setChanged();
             return;
         }
+
+        // NOTE: If you later decouple heat/energy, switch this to spec.temp.ratio().
+        overheated = spec.energy.ratio() >= 1.0;
 
         // 5) If not running (unpowered or out of fuel): stop motion/production.
         // Do NOT clear fuel ticks (it can continue burning to completion).
@@ -147,9 +153,8 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         // 6) Advance piston cycle based on temp ratio -> speed
         EngineCycleState.AdvanceResult res = spec.cycle.advance(spec.pistonSpeed());
 
-        // 7) Output (continuous): up to MAX_OUTPUT per tick.
-        // If you want proportional output, swap this for spec.output.maxSend(spec.energy, res).
-        long maxSend = Math.min(StirlingEngineSpec.MAX_OUTPUT, spec.energy.energy());
+        // 7) Output: proportional based on energy ratio (limits output until at target ratio)
+        long maxSend = spec.output.maxSend(spec.energy, res);
         if (maxSend > 0) {
             long sent = sendEnergy(level, maxSend);
             if (sent > 0) {
@@ -223,10 +228,59 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         return spec.temp.celsius();
     }
 
+    public HeatStage getHeatStage() {
+        return spec.stage();
+    }
+
+    public boolean isOverheated() {
+        return overheated;
+    }
+
+    public void clearOverheated() {
+        if (!overheated) return;
+        overheated = false;
+        setChanged();
+
+        if (level != null && !level.isClientSide()) {
+            BlockState st = getBlockState();
+            level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
+        }
+    }
+
     public boolean isRunning() {
         if (level == null) return false;
         boolean powered = isRedstonePowered(level, getBlockState());
         return powered && spec.fuel.isBurning() && !overheated;
+    }
+
+    // =========================
+    // Probe support for debugging
+    // =========================
+
+    public ProbeResult getProbeResult() {
+        ProbeResult.Builder builder = ProbeResult.builder("Stirling Engine");
+
+        // Power state
+        builder.entry("Powered", level != null && isRedstonePowered(level, getBlockState()) ? "Yes" : "No");
+        builder.entry("Running", isRunning() ? "Yes" : "No");
+
+        // Fuel state
+        builder.entry("Burning", spec.fuel.isBurning() ? "Yes" : "No");
+        if (spec.fuel.isBurning()) {
+            builder.entry("Burn Progress", String.format("%.1f%%", spec.fuel.getRatio() * 100));
+            builder.entry("Ticks Left", String.valueOf(spec.fuel.getBurnTicks()));
+        }
+
+        // Energy state
+        builder.entry("Energy", String.format("%d / %d (%d) RF", spec.energy.energy(), StirlingEngineSpec.CAPACITY, tickGeneration));
+        builder.entry("Energy %", String.format("%.1f%%", spec.energy.ratio() * 100));
+
+        // Warnings
+        if (overheated) {
+            builder.warning("OVERHEATED!");
+        }
+
+        return builder.build();
     }
 
     // =========================

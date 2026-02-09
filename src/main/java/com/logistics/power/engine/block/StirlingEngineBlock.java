@@ -1,7 +1,9 @@
 package com.logistics.power.engine.block;
 
 import com.logistics.LogisticsPower;
+import com.logistics.core.lib.block.Probeable;
 import com.logistics.core.lib.block.Wrenchable;
+import com.logistics.core.lib.support.ProbeResult;
 import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -27,7 +29,7 @@ import net.minecraft.world.level.redstone.Orientation;
 import net.minecraft.world.phys.BlockHitResult;
 import org.jetbrains.annotations.Nullable;
 
-public final class StirlingEngineBlock extends BaseEntityBlock implements Wrenchable {
+public final class StirlingEngineBlock extends BaseEntityBlock implements Wrenchable, Probeable {
 
     public static final MapCodec<StirlingEngineBlock> CODEC = simpleCodec(StirlingEngineBlock::new);
 
@@ -63,6 +65,13 @@ public final class StirlingEngineBlock extends BaseEntityBlock implements Wrench
         BlockState state = world.getBlockState(pos);
 
         if (!world.isClientSide()) {
+            // Check if engine is overheated and clear it if so
+            if (world.getBlockEntity(pos) instanceof StirlingEngineBlockEntity be && be.isOverheated()) {
+                be.clearOverheated();
+                return InteractionResult.SUCCESS;
+            }
+
+            // Otherwise, rotate the engine
             Direction facing = state.getValue(FACING);
             Direction next = nextFacing(facing);
             world.setBlock(pos, state.setValue(FACING, next), Block.UPDATE_CLIENTS);
@@ -160,8 +169,16 @@ public final class StirlingEngineBlock extends BaseEntityBlock implements Wrench
         return InteractionResult.SUCCESS;
     }
 
-        @Override
+    @Override
     public RenderShape getRenderShape(BlockState state) {
         return RenderShape.MODEL;
+    }
+
+    @Override
+    public ProbeResult onProbe(Level world, BlockPos pos, Player player) {
+        if (world.getBlockEntity(pos) instanceof StirlingEngineBlockEntity be) {
+            return be.getProbeResult();
+        }
+        return null;
     }
 }

@@ -1,7 +1,9 @@
 package com.logistics.power.engine.block;
 
 import com.logistics.LogisticsPower;
+import com.logistics.core.lib.block.Probeable;
 import com.logistics.core.lib.block.Wrenchable;
+import com.logistics.core.lib.support.ProbeResult;
 import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
@@ -24,7 +26,7 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.redstone.Orientation;
 import org.jetbrains.annotations.Nullable;
 
-public final class RedstoneEngineBlock extends BaseEntityBlock implements Wrenchable {
+public final class RedstoneEngineBlock extends BaseEntityBlock implements Wrenchable, Probeable {
 
     public static final MapCodec<RedstoneEngineBlock> CODEC = simpleCodec(RedstoneEngineBlock::new);
 
@@ -132,5 +134,13 @@ public final class RedstoneEngineBlock extends BaseEntityBlock implements Wrench
     @Override
     public RenderShape getRenderShape(BlockState state) {
         return RenderShape.MODEL;
+    }
+
+    @Override
+    public ProbeResult onProbe(Level world, BlockPos pos, Player player) {
+        if (world.getBlockEntity(pos) instanceof RedstoneEngineBlockEntity be) {
+            return be.getProbeResult();
+        }
+        return null;
     }
 }

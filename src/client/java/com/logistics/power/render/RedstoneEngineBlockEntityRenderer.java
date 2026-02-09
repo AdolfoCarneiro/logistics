@@ -1,9 +1,8 @@
 package com.logistics.power.render;
 
 import com.logistics.LogisticsMod;
-import com.logistics.core.lib.engine.RedstoneEngineSpec;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.render.ModelRegistry;
-import com.logistics.power.engine.block.RedstoneEngineBlock;
 import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
@@ -78,7 +77,7 @@ public final class RedstoneEngineBlockEntityRenderer
         public float pistonSpeed;
         public float progress01;
 
-        public Stage stage = Stage.COLD;
+        public HeatStage stage = HeatStage.COLD;
 
         public float pistonOffset() {
             // Map progress [0..1) to physical offset [0..0.5] blocks.
@@ -89,8 +88,6 @@ public final class RedstoneEngineBlockEntityRenderer
             return 0.5f * t;
         }
     }
-
-    public enum Stage { COLD, COOL, WARM, HOT, OVERHEAT }
 
     @Override
     public State createRenderState() {
@@ -116,9 +113,7 @@ public final class RedstoneEngineBlockEntityRenderer
         out.running = be.isRunning();
 
         // Compute stage from temperature ratio
-        long tempC = be.getTemperatureC();
-        double ratio = tempRatio(tempC);
-        out.stage = stageFromRatio(ratio, /*canOverheat*/ false);
+        out.stage = be.isOverheated() ? HeatStage.OVERHEAT : be.getHeatStage();
 
         // Speed from BE (already derived from temp ratio in your spec)
         out.pistonSpeed = be.getPistonSpeed();
@@ -254,7 +249,7 @@ public final class RedstoneEngineBlockEntityRenderer
     private static float[] trunkColor(State s) {
         // Redstone can't overheat; keep the classic “breathing” effect in HOT:
         // expansion (0..0.5): RED, compression (0.5..1): YELLOW
-        if (s.stage == Stage.HOT) {
+        if (s.stage == HeatStage.HOT) {
             return s.progress01 < 0.5f ? COLOR_RED : COLOR_YELLOW;
         }
 
@@ -265,28 +260,5 @@ public final class RedstoneEngineBlockEntityRenderer
             case HOT -> COLOR_RED;
             case OVERHEAT -> COLOR_OVERHEAT;
         };
-    }
-
-    // -------- Stage from temperature --------
-    // Redstone temp model: MIN_TEMP..MAX_TEMP, ratio bands determine stage.
-
-    private static double tempRatio(long tempC) {
-        // Keep in sync with your Redstone spec constants.
-        // If you don’t want to duplicate, add public MIN/MAX getters on the BE/spec later.
-        final long min = RedstoneEngineSpec.MIN_TEMP;
-        final long max = RedstoneEngineSpec.MAX_TEMP;
-        if (max <= min) return 0.0;
-        double r = (double) (tempC - min) / (double) (max - min);
-        if (r < 0.0) return 0.0;
-        if (r > 1.0) return 1.0;
-        return r;
-    }
-
-    private static Stage stageFromRatio(double r, boolean canOverheat) {
-        if (r < 0.25) return Stage.COLD;
-        if (r < 0.50) return Stage.COOL;
-        if (r < 0.75) return Stage.WARM;
-        if (r < 1.0 || !canOverheat) return Stage.HOT;
-        return Stage.OVERHEAT;
     }
 }

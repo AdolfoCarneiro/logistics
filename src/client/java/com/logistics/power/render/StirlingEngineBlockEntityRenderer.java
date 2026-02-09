@@ -1,7 +1,7 @@
 package com.logistics.power.render;
 
 import com.logistics.LogisticsMod;
-import com.logistics.core.lib.engine.StirlingEngineSpec;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.render.ModelRegistry;
 import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -78,7 +78,7 @@ public final class StirlingEngineBlockEntityRenderer
         public float pistonSpeed;
         public float progress01;
 
-        public Stage stage = Stage.COLD;
+        public HeatStage stage = HeatStage.COLD;
 
         public float pistonOffset() {
             // Map progress [0..1) to physical offset [0..0.5] blocks.
@@ -89,8 +89,6 @@ public final class StirlingEngineBlockEntityRenderer
             return 0.5f * t;
         }
     }
-
-    public enum Stage { COLD, COOL, WARM, HOT, OVERHEAT }
 
     @Override
     public State createRenderState() {
@@ -116,9 +114,7 @@ public final class StirlingEngineBlockEntityRenderer
         out.running = be.isRunning();
 
         // Compute stage from temperature ratio
-        long tempC = be.getTemperatureC();
-        double ratio = tempRatio(tempC);
-        out.stage = stageFromRatio(ratio, /*canOverheat*/ false);
+        out.stage = be.isOverheated() ? HeatStage.OVERHEAT : be.getHeatStage();
 
         // Speed from BE (already derived from temp ratio in your spec)
         out.pistonSpeed = be.getPistonSpeed();
@@ -252,12 +248,6 @@ public final class StirlingEngineBlockEntityRenderer
     }
 
     private static float[] trunkColor(State s) {
-        // Stirling can't overheat; keep the classic “breathing” effect in HOT:
-        // expansion (0..0.5): RED, compression (0.5..1): YELLOW
-        if (s.stage == Stage.HOT) {
-            return s.progress01 < 0.5f ? COLOR_RED : COLOR_YELLOW;
-        }
-
         return switch (s.stage) {
             case COLD -> COLOR_BLUE;
             case COOL -> COLOR_GREEN;
@@ -265,28 +255,5 @@ public final class StirlingEngineBlockEntityRenderer
             case HOT -> COLOR_RED;
             case OVERHEAT -> COLOR_OVERHEAT;
         };
-    }
-
-    // -------- Stage from temperature --------
-    // Stirling temp model: MIN_TEMP..MAX_TEMP, ratio bands determine stage.
-
-    private static double tempRatio(long tempC) {
-        // Keep in sync with your Stirling spec constants.
-        // If you don’t want to duplicate, add public MIN/MAX getters on the BE/spec later.
-        final long min = StirlingEngineSpec.MIN_TEMP;
-        final long max = StirlingEngineSpec.MAX_TEMP;
-        if (max <= min) return 0.0;
-        double r = (double) (tempC - min) / (double) (max - min);
-        if (r < 0.0) return 0.0;
-        if (r > 1.0) return 1.0;
-        return r;
-    }
-
-    private static Stage stageFromRatio(double r, boolean canOverheat) {
-        if (r < 0.25) return Stage.COLD;
-        if (r < 0.50) return Stage.COOL;
-        if (r < 0.75) return Stage.WARM;
-        if (r < 1.0 || !canOverheat) return Stage.HOT;
-        return Stage.OVERHEAT;
     }
 }

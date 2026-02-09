@@ -2,9 +2,11 @@ package com.logistics.power.engine.block.entity;
 
 import com.logistics.LogisticsPower;
 import com.logistics.core.lib.engine.state.EngineCycleState;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.engine.storage.EngineSerde;
 import com.logistics.core.lib.engine.RedstoneEngineSpec;
 import com.logistics.core.lib.power.SidedEnergyProvider;
+import com.logistics.core.lib.support.ProbeResult;
 import com.logistics.power.engine.block.RedstoneEngineBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -157,6 +159,14 @@ public final class RedstoneEngineBlockEntity extends BlockEntity {
         return spec.pistonSpeed();
     }
 
+    public HeatStage getHeatStage() {
+        return spec.stage();
+    }
+
+    public boolean isOverheated() {
+        return false;
+    }
+
     public long getTemperatureC() {
         return spec.temp.celsius();
     }
@@ -164,6 +174,32 @@ public final class RedstoneEngineBlockEntity extends BlockEntity {
     public boolean isRunning() {
         if (level == null) return false;
         return isRedstonePowered(level, getBlockState());
+    }
+
+    // =========================
+    // Probe support for debugging
+    // =========================
+
+    public ProbeResult getProbeResult() {
+        ProbeResult.Builder builder = ProbeResult.builder("Redstone Engine");
+
+        // Power state
+        builder.entry("Powered", level != null && isRedstonePowered(level, getBlockState()) ? "Yes" : "No");
+        builder.entry("Running", isRunning() ? "Yes" : "No");
+
+        // Energy state
+        builder.entry("Energy", String.format("%d / %d RF", spec.energy.energy(), RedstoneEngineSpec.CAPACITY));
+        builder.entry("Energy %", String.format("%.1f%%", spec.energy.ratio() * 100));
+
+        // Temperature
+        builder.entry("Temperature", String.format("%d°C", spec.temp.celsius()));
+        builder.entry("Temp Ratio", String.format("%.1f%%", spec.temp.ratio() * 100));
+
+        // Motion
+        builder.entry("Piston Speed", String.format("%.3f", spec.pistonSpeed()));
+        builder.entry("Cycle Progress", String.format("%.1f%%", spec.cycle.progress() * 100));
+
+        return builder.build();
     }
 
     // =========================
