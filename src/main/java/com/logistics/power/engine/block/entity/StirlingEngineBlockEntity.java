@@ -2,6 +2,7 @@ package com.logistics.power.engine.block.entity;
 
 import com.logistics.LogisticsPower;
 import com.logistics.core.lib.engine.StirlingEngineSpec;
+import com.logistics.core.lib.engine.fuel.FuelSource;
 import com.logistics.core.lib.engine.state.EngineCycleState;
 import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.engine.storage.EngineSerde;
@@ -50,6 +51,24 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     // 1-slot fuel inventory (slot 0)
     private ItemStack fuelStack = ItemStack.EMPTY;
 
+    // Fuel source abstraction that wraps the inventory
+    private final FuelSource inventoryFuelSource = new FuelSource() {
+        @Override
+        public int getNextFuelBurnTime() {
+            if (fuelStack.isEmpty() || level == null) return 0;
+            return level.fuelValues().burnDuration(fuelStack);
+        }
+
+        @Override
+        public void consumeFuel() {
+            fuelStack.shrink(1);
+            if (fuelStack.isEmpty()) {
+                fuelStack = ItemStack.EMPTY;
+            }
+            setChanged();
+        }
+    };
+
     // TR energy container (authoritative for external IO).
     // We mirror spec.energy <-> battery each tick and on load.
     public final SidedEnergyProvider battery = new SidedEnergyProvider() {
@@ -93,67 +112,39 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         // 0) Mirror TR energy into pure state
         spec.energy.set(battery.getEnergy());
 
-        boolean powered = isRedstonePowered(level, state);
+        // 1) Pre-tick engine-specific logic
+        burn();
 
-        // Fuel burn is independent of redstone once ignited.
-        // Tick it down whenever it is currently burning.
-        if (spec.fuel.isBurning()) {
-            spec.fuel.tickDown();
-        }
+        // 2) Determine running state
+        boolean running = computeRunning(level, state);
 
-        boolean isBurning = spec.fuel.isBurning();
-
-        // Only ignite new fuel if we're powered and not overheated.
-        if (powered && !isBurning && !overheated) {
-            tryIgniteFuelFromInventory();
-            isBurning = spec.fuel.isBurning();
-        }
-
-        // Running for production/output requires redstone + burning fuel + not overheated.
-        boolean running = powered && isBurning && !overheated;
-
-        // 1) Producer: increase RF
+        // 3) Producer
         tickGeneration = spec.producer.tick(running, spec.energy);
 
-        // 2) Drain: drains energy while NOT running (per your drain model)
+        // 4) Drain
         spec.drain.tick(running, spec.energy);
 
-        // 3) Thermal: temp proportional to stored energy ratio
+        // 5) Thermal
         spec.thermal.update(spec.energy, spec.temp);
 
-        // 4) Overheat latch: clear remaining fuel and stop running.
-        if (overheated) {
-            spec.cycle.reset();
-            spec.producer.reset();
-            spec.fuel.reset();
+        // 5.5) Update overheat status
+        if (!overheated && spec.canOverheat()) {
+            overheated = spec.energy.ratio() >= 1.0;
+        }
 
-            // TODO: overheat particles
-
+        // 6) Check if should stop
+        if (shouldStop(running)) {
+            onStop();
             battery.setEnergy(spec.energy.energy());
             syncRenderToClient();
             setChanged();
             return;
         }
 
-        // NOTE: If you later decouple heat/energy, switch this to spec.temp.ratio().
-        overheated = spec.energy.ratio() >= 1.0;
-
-        // 5) If not running (unpowered or out of fuel): stop motion/production.
-        // Do NOT clear fuel ticks (it can continue burning to completion).
-        if (!running) {
-            spec.cycle.reset();
-            spec.producer.reset();
-
-            battery.setEnergy(spec.energy.energy());
-            syncRenderToClient();
-            setChanged();
-            return;
-        }
-
-        // 6) Advance piston cycle based on temp ratio -> speed
+        // 7) Advance piston cycle
         EngineCycleState.AdvanceResult res = spec.cycle.advance(spec.pistonSpeed());
 
-        // 7) Output: proportional based on energy ratio (limits output until at target ratio)
+        // 8) Output
         long maxSend = spec.output.maxSend(spec.energy, res);
         if (maxSend > 0) {
             long sent = sendEnergy(level, maxSend);
@@ -162,12 +153,45 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
             }
         }
 
-        // 8) Mirror pure energy back into TR container
+        // 9) Mirror pure energy back into TR container
         battery.setEnergy(spec.energy.energy());
 
-        // 9) sync render
+        // 10) Sync render
         syncRenderToClient();
         setChanged();
+    }
+
+    // =========================
+    // Engine-specific hooks
+    // =========================
+
+    /** Pre-tick logic (e.g., fuel management). Called before main tick logic. */
+    protected void burn() {
+        boolean shouldIgnite = !overheated;
+        spec.tickFuel(shouldIgnite, inventoryFuelSource);
+    }
+
+    /** Computes whether the engine is running this tick. */
+    protected boolean computeRunning(Level level, BlockState state) {
+        boolean powered = isRedstonePowered(level, state);
+        return powered && spec.fuel.isBurning() && !overheated;
+    }
+
+    /** Checks if the engine should stop and skip cycle/output. */
+    protected boolean shouldStop(boolean running) {
+        // Stop if overheated or not running
+        return overheated || !running;
+    }
+
+    /** Called when the engine stops. Resets state as needed. */
+    protected void onStop() {
+        spec.cycle.reset();
+        spec.producer.reset();
+
+        // If overheated, also clear fuel
+        if (overheated) {
+            spec.fuel.reset();
+        }
     }
 
     /**
@@ -187,29 +211,6 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         EnergyStorageUtil.move(source, target, maxSend, null);
         long after = battery.getEnergy();
         return Math.max(0L, before - after);
-    }
-
-    /**
-     * Attempts to ignite fuel from the inventory.
-     * If successful, consumes one item and starts burning.
-     */
-    private void tryIgniteFuelFromInventory() {
-        if (fuelStack.isEmpty()) return;
-
-        assert level != null;
-        int burnTime = level.fuelValues().burnDuration(fuelStack);
-        if (burnTime <= 0) return;
-
-        // Start burning
-        spec.fuel.ignite(burnTime);
-
-        // Consume one item
-        fuelStack.shrink(1);
-        if (fuelStack.isEmpty()) {
-            fuelStack = ItemStack.EMPTY;
-        }
-
-        setChanged();
     }
 
     // =========================

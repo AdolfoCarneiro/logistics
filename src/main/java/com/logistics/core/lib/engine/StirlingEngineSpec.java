@@ -1,6 +1,7 @@
 package com.logistics.core.lib.engine;
 
 import com.logistics.core.lib.engine.drain.PassiveDrain;
+import com.logistics.core.lib.engine.fuel.FuelSource;
 import com.logistics.core.lib.engine.heat.CoupledThermalModel;
 import com.logistics.core.lib.engine.output.ProportionalOutput;
 import com.logistics.core.lib.engine.producer.PIDProducer;
@@ -38,5 +39,31 @@ public final class StirlingEngineSpec {
 
     public float pistonSpeed() {
         return speeds.speed(temp.ratio(), CAN_OVERHEAT);
+    }
+
+    public boolean canOverheat() {
+        return CAN_OVERHEAT;
+    }
+
+    /**
+     * Ticks the fuel state and attempts to ignite new fuel if conditions are met.
+     *
+     * @param shouldIgnite whether the engine should attempt to ignite new fuel (e.g., powered and not overheated)
+     * @param source the fuel source to consume from
+     */
+    public void tickFuel(boolean shouldIgnite, FuelSource source) {
+        // Tick down current fuel
+        if (fuel.isBurning()) {
+            fuel.tickDown();
+        }
+
+        // Try to ignite new fuel if conditions are met
+        if (shouldIgnite && !fuel.isBurning()) {
+            int burnTime = source.getNextFuelBurnTime();
+            if (burnTime > 0) {
+                fuel.ignite(burnTime);
+                source.consumeFuel();
+            }
+        }
     }
 }

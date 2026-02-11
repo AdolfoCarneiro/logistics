@@ -33,6 +33,9 @@ import team.reborn.energy.api.EnergyStorageUtil;
 public final class CreativeEngineBlockEntity extends BlockEntity {
 
     private final CreativeEngineSpec spec = new CreativeEngineSpec();
+    private boolean overheated = false;
+
+    private long tickGeneration = 0;
 
     // TR energy container (authoritative for external IO).
     // We mirror spec.energy <-> battery each tick and on load.
@@ -77,53 +80,84 @@ public final class CreativeEngineBlockEntity extends BlockEntity {
         // 0) Mirror TR energy into pure state
         spec.energy.set(battery.getEnergy());
 
-        boolean powered = isRedstonePowered(level, state);
+        // 1) Pre-tick engine-specific logic
+        burn();
 
-        // 1) Producer: creative engine always fills to capacity when powered
-        spec.producer.tick(powered, spec.energy);
+        // 2) Determine running state
+        boolean running = computeRunning(level, state);
 
-        // 2) Drain: creative engine doesn't drain (drain rate is 0)
-        spec.drain.tick(powered, spec.energy);
+        // 3) Producer
+        tickGeneration = spec.producer.tick(running, spec.energy);
 
-        // 3) Thermal: temp proportional to stored energy ratio
+        // 4) Drain
+        spec.drain.tick(running, spec.energy);
+
+        // 5) Thermal
         spec.thermal.update(spec.energy, spec.temp);
 
-        // 4) If not powered: reset cycle
-        if (!powered) {
-            spec.cycle.reset();
+        // 5.5) Update overheat status
+        if (!overheated && spec.canOverheat()) {
+            overheated = spec.energy.ratio() >= 1.0;
+        }
 
-            // Mirror energy back to TR container
+        // 6) Check if should stop
+        if (shouldStop(running)) {
+            onStop();
             battery.setEnergy(spec.energy.energy());
             syncRenderToClient();
             setChanged();
             return;
         }
 
-        // 5) Advance piston cycle based on temp ratio -> speed
+        // 7) Advance piston cycle
         EngineCycleState.AdvanceResult res = spec.cycle.advance(spec.pistonSpeed());
 
-        // 6) Output: continuous output at current level
+        // 8) Output
         long maxSend = spec.output.maxSend(spec.energy, res);
         if (maxSend > 0) {
-            long sent = sendEnergy(level, state, maxSend);
+            long sent = sendEnergy(level, maxSend);
             if (sent > 0) {
                 spec.energy.remove(sent);
             }
         }
 
-        // 7) Mirror pure energy back into TR container
+        // 9) Mirror pure energy back into TR container
         battery.setEnergy(spec.energy.energy());
 
-        // 8) sync visual stage
+        // 10) Sync render
         syncRenderToClient();
         setChanged();
+    }
+
+    // =========================
+    // Engine-specific hooks
+    // =========================
+
+    /** Pre-tick logic (e.g., fuel management). Called before main tick logic. */
+    protected void burn() {
+        // Creative engine has no pre-tick logic
+    }
+
+    /** Computes whether the engine is running this tick. */
+    protected boolean computeRunning(Level level, BlockState state) {
+        return isRedstonePowered(level, state);
+    }
+
+    /** Checks if the engine should stop and skip cycle/output. */
+    protected boolean shouldStop(boolean running) {
+        return !running;
+    }
+
+    /** Called when the engine stops. Resets state as needed. */
+    protected void onStop() {
+        spec.cycle.reset();
     }
 
     /**
      * Moves up to maxSend RF out of the engine to the neighbor on the output face.
      * Returns the amount actually moved.
      */
-    private long sendEnergy(Level level, BlockState state, long maxSend) {
+    private long sendEnergy(Level level, long maxSend) {
         Direction out = getOutputDirection();
         BlockPos targetPos = worldPosition.relative(out);
 

@@ -40,4 +40,8 @@ public final class RedstoneEngineSpec {
     public float pistonSpeed() {
         return speeds.speed(temp.ratio(), CAN_OVERHEAT);
     }
+
+    public boolean canOverheat() {
+        return CAN_OVERHEAT;
+    }
 }

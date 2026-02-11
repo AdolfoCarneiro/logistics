@@ -73,4 +73,8 @@ public final class CreativeEngineSpec {
         // Speed scales with output level
         return speeds.speed(temp.ratio(), CAN_OVERHEAT) * (outputLevelIndex + 1);
     }
+
+    public boolean canOverheat() {
+        return CAN_OVERHEAT;
+    }
 }
