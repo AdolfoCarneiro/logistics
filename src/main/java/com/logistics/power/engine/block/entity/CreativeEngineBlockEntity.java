@@ -1,102 +1,178 @@
 package com.logistics.power.engine.block.entity;
 
-import com.logistics.core.lib.power.AbstractEngineBlockEntity;
-import com.logistics.power.engine.block.CreativeEngineBlock;
 import com.logistics.LogisticsPower;
+import com.logistics.core.lib.engine.state.EngineCycleState;
+import com.logistics.core.lib.engine.state.HeatStage;
+import com.logistics.core.lib.engine.storage.EngineSerde;
+import com.logistics.core.lib.engine.CreativeEngineSpec;
+import com.logistics.core.lib.power.SidedEnergyProvider;
+import com.logistics.core.lib.support.ProbeResult;
+import com.logistics.power.engine.block.CreativeEngineBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import org.jetbrains.annotations.Nullable;
+import team.reborn.energy.api.EnergyStorage;
+import team.reborn.energy.api.EnergyStorageUtil;
 
 /**
- * Block entity for the Creative Engine.
- * A special engine for Creative Mode that generates configurable amounts of energy.
+ * Creative Engine BE (thin adapter):
+ * - delegates behavior to {@link CreativeEngineSpec}
+ * - handles Minecraft/TR energy IO + persistence + output direction
  */
-public class CreativeEngineBlockEntity extends AbstractEngineBlockEntity {
+public final class CreativeEngineBlockEntity extends BlockEntity {
 
-    // ==================== Constants ====================
+    private final CreativeEngineSpec spec = new CreativeEngineSpec();
 
-    /** Output levels that double with each wrench click. */
-    public static final long[] OUTPUT_LEVELS = {20, 40, 80, 160, 320, 640, 1280};
+    // TR energy container (authoritative for external IO).
+    // We mirror spec.energy <-> battery each tick and on load.
+    public final SidedEnergyProvider battery = new SidedEnergyProvider() {
+        @Override
+        public long getCapacity() {
+            return CreativeEngineSpec.CAPACITY;
+        }
 
-    private static final long MAX_ENERGY = 10_000L;
+        @Override
+        public long getMaxInsert(@Nullable Direction side) {
+            return 0; // Creative engine cannot accept energy externally
+        }
 
-    // ==================== State ====================
+        @Override
+        public long getMaxExtract(@Nullable Direction side) {
+            return (side != null && side == getOutputDirection())
+                    ? spec.getCurrentOutputLevel()
+                    : 0L;
+        }
 
-    private int outputLevelIndex = 0;
-
-    // ==================== Constructor & Ticker ====================
+        @Override
+        protected void onFinalCommit() {
+            setChanged();
+        }
+    };
 
     public CreativeEngineBlockEntity(BlockPos pos, BlockState state) {
         super(LogisticsPower.ENTITY.CREATIVE_ENGINE_BLOCK_ENTITY, pos, state);
     }
 
-    public static void tick(Level world, BlockPos pos, BlockState state, CreativeEngineBlockEntity entity) {
-        entity.tickEngine(world, pos, state);
+    // =========================
+    // Tick (server side)
+    // =========================
+
+    public static void serverTick(Level level, BlockPos pos, BlockState state, CreativeEngineBlockEntity be) {
+        if (level.isClientSide()) return;
+        be.tickServer(level, state);
     }
 
-    // ==================== Subclass Configuration ====================
+    private void tickServer(Level level, BlockState state) {
+        // 0) Mirror TR energy into pure state
+        spec.energy.set(battery.getEnergy());
 
-    @Override
-    protected long getEnergyBufferCapacity() {
-        return MAX_ENERGY;
-    }
+        boolean powered = isRedstonePowered(level, state);
 
-    @Override
-    protected long getOutputPower() {
-        return OUTPUT_LEVELS[outputLevelIndex];
-    }
+        // 1) Producer: creative engine always fills to capacity when powered
+        spec.producer.tick(powered, spec.energy);
 
-    @Override
-    public boolean canOverheat() {
-        return false;
-    }
+        // 2) Drain: creative engine doesn't drain (drain rate is 0)
+        spec.drain.tick(powered, spec.energy);
 
-    @Override
-    protected Direction getOutputDirection() {
-        return CreativeEngineBlock.getOutputDirection(getBlockState());
-    }
+        // 3) Thermal: temp proportional to stored energy ratio
+        spec.thermal.update(spec.energy, spec.temp);
 
-    @Override
-    protected boolean isRedstonePowered() {
-        return getBlockState().getValue(CreativeEngineBlock.POWERED);
-    }
+        // 4) If not powered: reset cycle
+        if (!powered) {
+            spec.cycle.reset();
 
-    @Override
-    protected boolean sendsEnergyContinuously() {
-        return true;
-    }
-
-    @Override
-    protected HeatStage computeStage() {
-        return HeatStage.COLD;
-    }
-
-    @Override
-    public float getPistonSpeed() {
-        return 0.02F * (outputLevelIndex + 1);
-    }
-
-    // ==================== Lifecycle Hooks ====================
-
-    /**
-     * Creative engine generates infinite energy - buffer is always full when running.
-     */
-    @Override
-    protected void produceEnergy() {
-        if (!isRedstonePowered()) {
+            // Mirror energy back to TR container
+            battery.setEnergy(spec.energy.energy());
+            syncRenderToClient();
+            setChanged();
             return;
         }
 
-        // Infinite energy generation - always fill buffer to max
-        energyStorage.amount = getEnergyBufferCapacity();
+        // 5) Advance piston cycle based on temp ratio -> speed
+        EngineCycleState.AdvanceResult res = spec.cycle.advance(spec.pistonSpeed());
+
+        // 6) Output: continuous output at current level
+        long maxSend = spec.output.maxSend(spec.energy, res);
+        if (maxSend > 0) {
+            long sent = sendEnergy(level, state, maxSend);
+            if (sent > 0) {
+                spec.energy.remove(sent);
+            }
+        }
+
+        // 7) Mirror pure energy back into TR container
+        battery.setEnergy(spec.energy.energy());
+
+        // 8) sync visual stage
+        syncRenderToClient();
+        setChanged();
     }
 
-    // ==================== Output Level Control ====================
+    /**
+     * Moves up to maxSend RF out of the engine to the neighbor on the output face.
+     * Returns the amount actually moved.
+     */
+    private long sendEnergy(Level level, BlockState state, long maxSend) {
+        Direction out = getOutputDirection();
+        BlockPos targetPos = worldPosition.relative(out);
+
+        EnergyStorage target = EnergyStorage.SIDED.find(level, targetPos, out.getOpposite());
+        if (target == null) return 0L;
+
+        EnergyStorage source = battery.getSideStorage(out);
+
+        long before = battery.getEnergy();
+        EnergyStorageUtil.move(source, target, maxSend, null);
+        long after = battery.getEnergy();
+        long moved = Math.max(0L, before - after);
+
+        return moved;
+    }
+
+    // =========================
+    // Client rendering accessors
+    // =========================
+
+    /** Client can use this for smooth interpolation. */
+    public float getPistonProgress01() {
+        return spec.cycle.progress();
+    }
+
+    public float getPistonSpeed() {
+        return spec.pistonSpeed();
+    }
+
+    public HeatStage getHeatStage() {
+        return spec.stage();
+    }
+
+    public boolean isOverheated() {
+        return false;
+    }
+
+    public long getTemperatureC() {
+        return spec.temp.celsius();
+    }
+
+    public boolean isRunning() {
+        if (level == null) return false;
+        return isRedstonePowered(level, getBlockState());
+    }
+
+    // =========================
+    // Output level control
+    // =========================
 
     /**
      * Cycles to the next output level (doubles the output rate).
@@ -105,7 +181,10 @@ public class CreativeEngineBlockEntity extends AbstractEngineBlockEntity {
      * @return the new output rate in RF/t
      */
     public long cycleOutputLevel() {
-        outputLevelIndex = (outputLevelIndex + 1) % OUTPUT_LEVELS.length;
+        int currentIndex = spec.getOutputLevelIndex();
+        int nextIndex = (currentIndex + 1) % CreativeEngineSpec.OUTPUT_LEVELS.length;
+        spec.setOutputLevelIndex(nextIndex);
+
         setChanged();
 
         // Sync to clients so renderer can update piston speed
@@ -113,44 +192,131 @@ public class CreativeEngineBlockEntity extends AbstractEngineBlockEntity {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
         }
 
-        return OUTPUT_LEVELS[outputLevelIndex];
+        return spec.getCurrentOutputLevel();
     }
 
-    /**
-     * Gets the current output level index.
-     */
-    public int getOutputLevelIndex() {
-        return outputLevelIndex;
+    // =========================
+    // Probe support for debugging
+    // =========================
+
+    public ProbeResult getProbeResult() {
+        ProbeResult.Builder builder = ProbeResult.builder("Creative Engine");
+
+        // Power state
+        builder.entry("Powered", level != null && isRedstonePowered(level, getBlockState()) ? "Yes" : "No");
+        builder.entry("Running", isRunning() ? "Yes" : "No");
+
+        // Output level
+        builder.entry("Output Level", spec.getCurrentOutputLevel() + " RF/t");
+
+        // Energy state
+        builder.entry("Energy", String.format("%d / %d RF", spec.energy.energy(), CreativeEngineSpec.CAPACITY));
+        builder.entry("Energy %", String.format("%.1f%%", spec.energy.ratio() * 100));
+
+        // Temperature
+        builder.entry("Temperature", String.format("%d°C", spec.temp.celsius()));
+        builder.entry("Temp Ratio", String.format("%.1f%%", spec.temp.ratio() * 100));
+
+        // Motion
+        builder.entry("Piston Speed", String.format("%.3f", spec.pistonSpeed()));
+        builder.entry("Cycle Progress", String.format("%.1f%%", spec.cycle.progress() * 100));
+
+        return builder.build();
     }
 
-    /**
-     * Gets the current output rate in RF/t.
-     */
-    public long getOutputRate() {
-        return OUTPUT_LEVELS[outputLevelIndex];
+    // =========================
+    // BE update packets for render data
+    // =========================
+    private int renderSyncCooldown = 0;
+
+    private void syncRenderToClient() {
+        if (level == null || level.isClientSide()) return;
+
+        // throttle: e.g. 5x/sec
+        if (--renderSyncCooldown > 0) return;
+        renderSyncCooldown = 4;
+
+        BlockState st = getBlockState();
+        level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
     }
 
-    // ==================== NBT Serialization ====================
+    @Override
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        // Use the same structure as disk persistence so the client can apply it via the normal load path.
+        EngineSerde.Snapshot snap = new EngineSerde.Snapshot(
+                spec.energy.energy(),
+                spec.temp.celsius(),
+                spec.cycle.progress(),
+                false
+        );
+
+        CompoundTag root = new CompoundTag();
+        CompoundTag engine = EngineSerde.writeSnapshot(snap);
+
+        // Send output level index for rendering
+        engine.putInt("outputLevelIndex", spec.getOutputLevelIndex());
+
+        root.put(EngineSerde.KEY_ENGINE, engine);
+        return root;
+    }
+
+    // =========================
+    // Redstone + Facing
+    // =========================
+
+    private static boolean isRedstonePowered(Level level, BlockState state) {
+        return state.getValue(CreativeEngineBlock.POWERED);
+    }
+
+    private Direction getOutputDirection() {
+        return getBlockState().getValue(CreativeEngineBlock.FACING);
+    }
+
+    public boolean isOutputDirection(@Nullable Direction direction) {
+        return direction == getOutputDirection();
+    }
+
+    // =========================
+    // Persistence
+    // =========================
 
     @Override
     protected void saveAdditional(ValueOutput view) {
-        super.saveAdditional(view);
+        // Common engine snapshot
+        EngineSerde.Snapshot snap = new EngineSerde.Snapshot(
+                spec.energy.energy(),
+                spec.temp.celsius(),
+                spec.cycle.progress(),
+                /*overheated*/ false
+        );
 
-        CompoundTag creativeData = new CompoundTag();
-        creativeData.putInt("outputLevelIndex", outputLevelIndex);
-        view.store("CreativeData", CompoundTag.CODEC, creativeData);
+        CompoundTag tag = EngineSerde.writeSnapshot(snap);
+
+        // Creative-specific state: output level index
+        tag.putInt("outputLevelIndex", spec.getOutputLevelIndex());
+
+        view.store(EngineSerde.KEY_ENGINE, CompoundTag.CODEC, tag);
     }
 
     @Override
     protected void loadAdditional(ValueInput view) {
-        super.loadAdditional(view);
+        view.read(EngineSerde.KEY_ENGINE, CompoundTag.CODEC).ifPresent(tag -> {
+            EngineSerde.Snapshot snap = EngineSerde.readSnapshot(tag, CreativeEngineSpec.MIN_TEMP);
 
-        view.read("CreativeData", CompoundTag.CODEC).ifPresent(creativeData -> {
-            outputLevelIndex = creativeData.getInt("outputLevelIndex").orElse(0);
-            // Clamp to valid range
-            if (outputLevelIndex < 0 || outputLevelIndex >= OUTPUT_LEVELS.length) {
-                outputLevelIndex = 0;
-            }
+            spec.energy.set(snap.energy());
+            spec.temp.setCelsius(snap.heatC());
+            spec.cycle.setProgress(snap.progress());
+
+            int outputLevelIndex = tag.getInt("outputLevelIndex").orElse(0);
+            spec.setOutputLevelIndex(outputLevelIndex);
+
+            // Mirror into TR container so external IO sees correct state immediately
+            battery.setEnergy(spec.energy.energy());
         });
     }
 }

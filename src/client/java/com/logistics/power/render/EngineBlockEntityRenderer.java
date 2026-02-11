@@ -6,7 +6,6 @@ import com.logistics.LogisticsMod;
 import com.logistics.core.lib.power.AbstractEngineBlockEntity;
 import com.logistics.core.lib.power.AbstractEngineBlockEntity.HeatStage;
 import com.logistics.core.render.ModelRegistry;
-import com.logistics.power.engine.block.entity.CreativeEngineBlockEntity;
 import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
 import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -111,10 +110,7 @@ public class EngineBlockEntityRenderer implements BlockEntityRenderer<AbstractEn
         // Get stage from block state (synced automatically) for reliable rendering
         state.stage = entity.getBlockState().getValue(STAGE);
 
-        // Determine engine type
-        if (entity instanceof CreativeEngineBlockEntity) {
-            state.engineType = EngineRenderState.EngineType.CREATIVE;
-        }
+        // Note: Creative engine now uses dedicated CreativeEngineBlockEntityRenderer
 
         state.isRunning = entity.isRunning();
         state.pistonSpeed = entity.getPistonSpeed();

@@ -108,7 +108,7 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
 
         EnergyStorage.SIDED.registerForBlockEntity(
                 (engine, direction) -> engine.isOutputDirection(direction)
-                        ? engine.energyStorage.getSideStorage(direction)
+                        ? engine.battery.getSideStorage(direction)
                         : null,
                 ENTITY.CREATIVE_ENGINE_BLOCK_ENTITY);
 
