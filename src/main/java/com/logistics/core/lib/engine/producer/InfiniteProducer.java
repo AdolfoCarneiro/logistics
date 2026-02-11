@@ -1,13 +1,15 @@
 package com.logistics.core.lib.engine.producer;
 
+import com.logistics.core.lib.engine.Producer;
 import com.logistics.core.lib.power.EnergyBuffer;
 
 /**
  * Infinite producer for creative engine - always fills buffer to 100% capacity.
  * Used for creative/testing purposes where infinite energy is needed.
  */
-public final class InfiniteProducer {
+public final class InfiniteProducer implements Producer {
 
+    @Override
     public long tick(boolean powered, EnergyBuffer energy) {
         if (!powered) return 0;
 
@@ -18,6 +20,7 @@ public final class InfiniteProducer {
         return capacity - before;
     }
 
+    @Override
     public void reset() {
         // No state to reset
     }

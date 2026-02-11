@@ -1,9 +1,10 @@
 package com.logistics.core.lib.engine.output;
 
+import com.logistics.core.lib.engine.Output;
 import com.logistics.core.lib.engine.state.EngineCycleState;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class ProportionalOutput {
+public final class ProportionalOutput implements Output {
     private final double targetRatio;
     private final long maxOutput;
 
@@ -15,6 +16,7 @@ public final class ProportionalOutput {
         this.maxOutput = Math.max(0L, maxOutput);
     }
 
+    @Override
     public long maxSend(EnergyBuffer energy, EngineCycleState.AdvanceResult cycle) {
         long stored = energy.energy();
         if (stored <= 0L || maxOutput <= 0L) return 0L;

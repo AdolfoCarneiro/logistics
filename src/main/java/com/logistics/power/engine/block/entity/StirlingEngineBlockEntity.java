@@ -3,9 +3,8 @@ package com.logistics.power.engine.block.entity;
 import com.logistics.LogisticsPower;
 import com.logistics.core.lib.engine.StirlingEngineSpec;
 import com.logistics.core.lib.engine.fuel.FuelSource;
-import com.logistics.core.lib.engine.state.EngineCycleState;
-import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.engine.storage.EngineSerde;
+import com.logistics.core.lib.power.AbstractEngineBlockEntity;
 import com.logistics.core.lib.power.SidedEnergyProvider;
 import com.logistics.core.lib.support.ProbeResult;
 import com.logistics.power.engine.block.StirlingEngineBlock;
@@ -28,30 +27,21 @@ import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import org.jetbrains.annotations.Nullable;
-import team.reborn.energy.api.EnergyStorage;
-import team.reborn.energy.api.EnergyStorageUtil;
 
 /**
- * Stirling Engine BE (thin adapter):
- * - delegates behavior to {@link StirlingEngineSpec}
- * - handles Minecraft/TR energy IO + persistence + output direction
+ * Stirling Engine BE - minimal implementation with fuel inventory.
+ * All common logic is in {@link AbstractEngineBlockEntity}.
  */
-public final class StirlingEngineBlockEntity extends BlockEntity implements Container, ExtendedScreenHandlerFactory<BlockPos> {
+public final class StirlingEngineBlockEntity extends AbstractEngineBlockEntity<StirlingEngineSpec>
+        implements Container, ExtendedScreenHandlerFactory<BlockPos> {
 
     private final StirlingEngineSpec spec = new StirlingEngineSpec();
-    private boolean overheated = false;
-
-    private long tickGeneration = 0;
-
-    // 1-slot fuel inventory (slot 0)
     private ItemStack fuelStack = ItemStack.EMPTY;
 
-    // Fuel source abstraction that wraps the inventory
     private final FuelSource inventoryFuelSource = new FuelSource() {
         @Override
         public int getNextFuelBurnTime() {
@@ -69,8 +59,6 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
         }
     };
 
-    // TR energy container (authoritative for external IO).
-    // We mirror spec.energy <-> battery each tick and on load.
     public final SidedEnergyProvider battery = new SidedEnergyProvider() {
         @Override
         public long getCapacity() {
@@ -79,7 +67,7 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
 
         @Override
         public long getMaxInsert(@Nullable Direction side) {
-            return 0; // Stirling engine cannot accept energy externally
+            return 0;
         }
 
         @Override
@@ -100,184 +88,82 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     }
 
     // =========================
-    // Tick (server side)
+    // Abstract method implementations
     // =========================
 
-    public static void serverTick(Level level, BlockPos pos, BlockState state, StirlingEngineBlockEntity be) {
-        if (level.isClientSide()) return;
-        be.tickServer(level, state);
+    @Override
+    protected StirlingEngineSpec getSpec() {
+        return spec;
     }
 
-    private void tickServer(Level level, BlockState state) {
-        // 0) Mirror TR energy into pure state
-        spec.energy.set(battery.getEnergy());
+    @Override
+    public SidedEnergyProvider getBattery() {
+        return battery;
+    }
 
-        // 1) Pre-tick engine-specific logic
-        burn();
+    @Override
+    protected Direction getOutputDirection() {
+        return getBlockState().getValue(StirlingEngineBlock.FACING);
+    }
 
-        // 2) Determine running state
-        boolean running = computeRunning(level, state);
-
-        // 3) Producer
-        tickGeneration = spec.producer.tick(running, spec.energy);
-
-        // 4) Drain
-        spec.drain.tick(running, spec.energy);
-
-        // 5) Thermal
-        spec.thermal.update(spec.energy, spec.temp);
-
-        // 5.5) Update overheat status
-        if (!overheated && spec.canOverheat()) {
-            overheated = spec.energy.ratio() >= 1.0;
-        }
-
-        // 6) Check if should stop
-        if (shouldStop(running)) {
-            onStop();
-            battery.setEnergy(spec.energy.energy());
-            syncRenderToClient();
-            setChanged();
-            return;
-        }
-
-        // 7) Advance piston cycle
-        EngineCycleState.AdvanceResult res = spec.cycle.advance(spec.pistonSpeed());
-
-        // 8) Output
-        long maxSend = spec.output.maxSend(spec.energy, res);
-        if (maxSend > 0) {
-            long sent = sendEnergy(level, maxSend);
-            if (sent > 0) {
-                spec.energy.remove(sent);
-            }
-        }
-
-        // 9) Mirror pure energy back into TR container
-        battery.setEnergy(spec.energy.energy());
-
-        // 10) Sync render
-        syncRenderToClient();
-        setChanged();
+    @Override
+    protected boolean isRedstonePowered(Level level, BlockState state) {
+        return state.getValue(StirlingEngineBlock.POWERED);
     }
 
     // =========================
-    // Engine-specific hooks
+    // Hook method implementations
     // =========================
 
-    /** Pre-tick logic (e.g., fuel management). Called before main tick logic. */
+    @Override
     protected void burn() {
-        boolean shouldIgnite = !overheated;
+        boolean shouldIgnite = !getOverheated();
         spec.tickFuel(shouldIgnite, inventoryFuelSource);
     }
 
-    /** Computes whether the engine is running this tick. */
+    @Override
     protected boolean computeRunning(Level level, BlockState state) {
         boolean powered = isRedstonePowered(level, state);
-        return powered && spec.fuel.isBurning() && !overheated;
+        return powered && spec.fuel.isBurning() && !getOverheated();
     }
 
-    /** Checks if the engine should stop and skip cycle/output. */
+    @Override
     protected boolean shouldStop(boolean running) {
-        // Stop if overheated or not running
-        return overheated || !running;
+        return getOverheated() || !running;
     }
 
-    /** Called when the engine stops. Resets state as needed. */
+    @Override
     protected void onStop() {
-        spec.cycle.reset();
-        spec.producer.reset();
-
-        // If overheated, also clear fuel
-        if (overheated) {
+        spec.getCycle().reset();
+        spec.getProducer().reset();
+        if (getOverheated()) {
             spec.fuel.reset();
         }
     }
 
-    /**
-     * Moves up to maxSend RF out of the engine to the neighbor on the output face.
-     * Returns the amount actually moved.
-     */
-    private long sendEnergy(Level level, long maxSend) {
-        Direction out = getOutputDirection();
-        BlockPos targetPos = worldPosition.relative(out);
-
-        EnergyStorage target = EnergyStorage.SIDED.find(level, targetPos, out.getOpposite());
-        if (target == null) return 0L;
-
-        EnergyStorage source = battery.getSideStorage(out);
-
-        long before = battery.getEnergy();
-        EnergyStorageUtil.move(source, target, maxSend, null);
-        long after = battery.getEnergy();
-        return Math.max(0L, before - after);
-    }
-
-    // =========================
-    // Client rendering accessors
-    // =========================
-
-    public float getPistonProgress01() {
-        return spec.cycle.progress();
-    }
-
-    public float getPistonSpeed() {
-        return spec.pistonSpeed();
-    }
-
-    public long getTemperatureC() {
-        return spec.temp.celsius();
-    }
-
-    public HeatStage getHeatStage() {
-        return spec.stage();
-    }
-
-    public boolean isOverheated() {
-        return overheated;
-    }
-
-    public void clearOverheated() {
-        if (!overheated) return;
-        overheated = false;
-        setChanged();
-
-        if (level != null && !level.isClientSide()) {
-            BlockState st = getBlockState();
-            level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
-        }
-    }
-
+    @Override
     public boolean isRunning() {
         if (level == null) return false;
         boolean powered = isRedstonePowered(level, getBlockState());
-        return powered && spec.fuel.isBurning() && !overheated;
+        return powered && spec.fuel.isBurning() && !getOverheated();
     }
 
-    // =========================
-    // Probe support for debugging
-    // =========================
-
+    @Override
     public ProbeResult getProbeResult() {
         ProbeResult.Builder builder = ProbeResult.builder("Stirling Engine");
 
-        // Power state
         builder.entry("Powered", level != null && isRedstonePowered(level, getBlockState()) ? "Yes" : "No");
         builder.entry("Running", isRunning() ? "Yes" : "No");
-
-        // Fuel state
         builder.entry("Burning", spec.fuel.isBurning() ? "Yes" : "No");
         if (spec.fuel.isBurning()) {
             builder.entry("Burn Progress", String.format("%.1f%%", spec.fuel.getRatio() * 100));
             builder.entry("Ticks Left", String.valueOf(spec.fuel.getBurnTicks()));
         }
+        builder.entry("Energy", String.format("%d / %d (%d) RF",
+            spec.getEnergy().energy(), StirlingEngineSpec.CAPACITY, getTickGeneration()));
+        builder.entry("Energy %", String.format("%.1f%%", spec.getEnergy().ratio() * 100));
 
-        // Energy state
-        builder.entry("Energy", String.format("%d / %d (%d) RF", spec.energy.energy(), StirlingEngineSpec.CAPACITY, tickGeneration));
-        builder.entry("Energy %", String.format("%.1f%%", spec.energy.ratio() * 100));
-
-        // Warnings
-        if (overheated) {
+        if (getOverheated()) {
             builder.warning("OVERHEATED!");
         }
 
@@ -285,20 +171,16 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     }
 
     // =========================
-    // BE update packets for render data
+    // Helpers
     // =========================
 
-    private int renderSyncCooldown = 0;
-
-    private void syncRenderToClient() {
-        if (level == null || level.isClientSide()) return;
-
-        if (--renderSyncCooldown > 0) return;
-        renderSyncCooldown = 4;
-
-        BlockState st = getBlockState();
-        level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
+    public boolean isOutputDirection(@Nullable Direction direction) {
+        return direction == getOutputDirection();
     }
+
+    // =========================
+    // Update packets
+    // =========================
 
     @Override
     public Packet<ClientGamePacketListener> getUpdatePacket() {
@@ -308,36 +190,17 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
         EngineSerde.Snapshot snap = new EngineSerde.Snapshot(
-                spec.energy.energy(),
-                spec.temp.celsius(),
-                spec.cycle.progress(),
-                overheated
+                spec.getEnergy().energy(),
+                spec.getTemperature().celsius(),
+                spec.getCycle().progress(),
+                getOverheated()
         );
 
         CompoundTag root = new CompoundTag();
         CompoundTag engine = EngineSerde.writeSnapshot(snap);
-
-        // Send burn ticks to client so isRunning() works for animation
         engine.putInt("burnTicks", spec.fuel.getBurnTicks());
-
         root.put(EngineSerde.KEY_ENGINE, engine);
         return root;
-    }
-
-    // =========================
-    // Redstone + Facing
-    // =========================
-
-    private static boolean isRedstonePowered(Level level, BlockState state) {
-        return state.getValue(StirlingEngineBlock.POWERED);
-    }
-
-    private Direction getOutputDirection() {
-        return getBlockState().getValue(StirlingEngineBlock.FACING);
-    }
-
-    public boolean isOutputDirection(@Nullable Direction direction) {
-        return direction == getOutputDirection();
     }
 
     // =========================
@@ -396,7 +259,6 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
 
     @Override
     public boolean stillValid(Player player) {
-        // Standard distance check for containers.
         if (level == null) return false;
         if (level.getBlockEntity(worldPosition) != this) return false;
         return player.distanceToSqr(
@@ -416,60 +278,12 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     public boolean canPlaceItem(int slot, ItemStack stack) {
         if (slot != 0) return false;
         if (stack == null || stack.isEmpty()) return true;
-        // Only accept items that are valid fuels.
-        // (This is conservative; ignition will also validate burn time.)
         return level != null && level.fuelValues().isFuel(stack);
     }
 
     // =========================
-    // Persistence
+    // Screen handler
     // =========================
-
-    @Override
-    protected void saveAdditional(ValueOutput view) {
-        EngineSerde.Snapshot snap = new EngineSerde.Snapshot(
-                spec.energy.energy(),
-                spec.temp.celsius(),
-                spec.cycle.progress(),
-                overheated
-        );
-
-        CompoundTag tag = EngineSerde.writeSnapshot(snap);
-
-        // Stirling-specific state
-        tag.putDouble("accumulator", spec.producer.getAccumulator());
-        tag.putInt("fuelTicks", spec.fuel.getFuelTicks());
-        tag.putInt("burnTicks", spec.fuel.getBurnTicks());
-
-        view.store(EngineSerde.KEY_ENGINE, CompoundTag.CODEC, tag);
-        view.store("Fuel", ItemStack.CODEC, fuelStack);
-    }
-
-    @Override
-    protected void loadAdditional(ValueInput view) {
-        view.read(EngineSerde.KEY_ENGINE, CompoundTag.CODEC).ifPresent(tag -> {
-            EngineSerde.Snapshot snap = EngineSerde.readSnapshot(tag, StirlingEngineSpec.MIN_TEMP);
-
-            spec.energy.set(snap.energy());
-            spec.temp.setCelsius(snap.heatC());
-            spec.cycle.setProgress(snap.progress());
-            overheated = snap.overheated();
-
-            Double accumulator = tag.getDouble("accumulator").orElse(0.0);
-            int fuelTicks = tag.getInt("fuelTicks").orElse(0);
-            int burnTicks = tag.getInt("burnTicks").orElse(0);
-
-            spec.producer.setAccumulator(accumulator);
-            spec.fuel.setFuelTicks(fuelTicks);
-            spec.fuel.setBurnTicks(burnTicks);
-
-            battery.setEnergy(spec.energy.energy());
-        });
-
-        view.read("Fuel", ItemStack.CODEC).ifPresent(stack -> {
-            fuelStack = stack;
-        });
-    }
 
     public static final int PROPERTY_BURN_RATIO = 0;
     public static final int PROPERTY_COUNT = 1;
@@ -511,5 +325,53 @@ public final class StirlingEngineBlockEntity extends BlockEntity implements Cont
     @Override
     public @org.jspecify.annotations.Nullable AbstractContainerMenu createMenu(int i, Inventory inventory, Player player) {
         return new StirlingEngineScreenHandler(i, inventory, this, data);
+    }
+
+    // =========================
+    // Persistence
+    // =========================
+
+    @Override
+    protected void saveAdditional(ValueOutput view) {
+        EngineSerde.Snapshot snap = new EngineSerde.Snapshot(
+                spec.getEnergy().energy(),
+                spec.getTemperature().celsius(),
+                spec.getCycle().progress(),
+                getOverheated()
+        );
+
+        CompoundTag tag = EngineSerde.writeSnapshot(snap);
+        tag.putDouble("accumulator", spec.producer.getAccumulator());
+        tag.putInt("fuelTicks", spec.fuel.getFuelTicks());
+        tag.putInt("burnTicks", spec.fuel.getBurnTicks());
+
+        view.store(EngineSerde.KEY_ENGINE, CompoundTag.CODEC, tag);
+        view.store("Fuel", ItemStack.CODEC, fuelStack);
+    }
+
+    @Override
+    protected void loadAdditional(ValueInput view) {
+        view.read(EngineSerde.KEY_ENGINE, CompoundTag.CODEC).ifPresent(tag -> {
+            EngineSerde.Snapshot snap = EngineSerde.readSnapshot(tag, StirlingEngineSpec.MIN_TEMP);
+
+            spec.getEnergy().set(snap.energy());
+            spec.getTemperature().setCelsius(snap.heatC());
+            spec.getCycle().setProgress(snap.progress());
+            setOverheated(snap.overheated());
+
+            Double accumulator = tag.getDouble("accumulator").orElse(0.0);
+            int fuelTicks = tag.getInt("fuelTicks").orElse(0);
+            int burnTicks = tag.getInt("burnTicks").orElse(0);
+
+            spec.producer.setAccumulator(accumulator);
+            spec.fuel.setFuelTicks(fuelTicks);
+            spec.fuel.setBurnTicks(burnTicks);
+
+            battery.setEnergy(spec.getEnergy().energy());
+        });
+
+        view.read("Fuel", ItemStack.CODEC).ifPresent(stack -> {
+            fuelStack = stack;
+        });
     }
 }

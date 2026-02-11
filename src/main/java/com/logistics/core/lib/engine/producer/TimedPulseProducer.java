@@ -1,8 +1,9 @@
 package com.logistics.core.lib.engine.producer;
 
+import com.logistics.core.lib.engine.Producer;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class TimedPulseProducer {
+public final class TimedPulseProducer implements Producer {
 
     private final int periodTicks;
     private final long energyPerPulse;
@@ -14,6 +15,7 @@ public final class TimedPulseProducer {
         this.energyPerPulse = Math.max(0L, energyPerPulse);
     }
 
+    @Override
     public long tick(boolean powered, EnergyBuffer energy) {
         if (!powered) {
             counter = 0;
@@ -30,6 +32,7 @@ public final class TimedPulseProducer {
         return 0;
     }
 
+    @Override
     public void reset() {
         counter = 0;
     }

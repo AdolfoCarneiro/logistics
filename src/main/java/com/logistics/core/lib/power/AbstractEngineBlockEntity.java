@@ -1,568 +1,134 @@
 package com.logistics.core.lib.power;
 
+import com.logistics.core.lib.engine.EngineSpec;
+import com.logistics.core.lib.engine.state.EngineCycleState;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.support.ProbeResult;
-import team.reborn.energy.api.EnergyStorageUtil;
-import team.reborn.energy.api.base.SimpleSidedEnergyContainer;
-import team.reborn.energy.api.EnergyStorage;
-import java.util.Locale;
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
-import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.EnumProperty;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
-import org.jetbrains.annotations.Nullable;
+import team.reborn.energy.api.EnergyStorage;
+import team.reborn.energy.api.EnergyStorageUtil;
 
 /**
- * Abstract base class for all engine block entities.
- * Implements BuildCraft-style heat mechanics with a two-stroke cycle.
- *
- * <p>Heat System:
- * <ul>
- *   <li>Heat is tied to energy level (buffer fullness)</li>
- *   <li>Full buffer = hot, empty buffer = cool</li>
- *   <li>This naturally handles "blocked output = overheat"</li>
- * </ul>
- *
- * <p>Two-Stroke Cycle:
- * <ul>
- *   <li>Progress goes from 0 to 1, speed varies by heat stage</li>
- *   <li>Expansion stroke (0-0.5): energy accumulates in buffer</li>
- *   <li>Compression stroke (0.5-1): energy is pushed to output</li>
- * </ul>
+ * Minimal abstract base for engine block entities.
+ * Contains only the truly common tick logic and helper methods.
  */
-public abstract class AbstractEngineBlockEntity extends BlockEntity {
+public abstract class AbstractEngineBlockEntity<S extends EngineSpec> extends BlockEntity {
 
-    // ==================== Heat Stage Enum ====================
+    private boolean overheated = false;
+    private long tickGeneration = 0;
+    private int renderSyncCooldown = 0;
 
-    /** Represents the heat stages of an engine. */
-    public enum HeatStage implements StringRepresentable {
-        COLD,
-        COOL,
-        WARM,
-        HOT,
-        OVERHEAT;
-
-        private static final HeatStage[] VALUES = values();
-
-        @Override
-        public String getSerializedName() {
-            return name().toLowerCase(Locale.ROOT);
-        }
-
-        public static HeatStage fromOrdinal(int ordinal) {
-            return (ordinal >= 0 && ordinal < VALUES.length) ? VALUES[ordinal] : COLD;
-        }
-    }
-
-    /** Block state property for engine heat stage. */
-    public static final EnumProperty<HeatStage> STAGE = EnumProperty.create("stage", HeatStage.class);
-
-    /** Client-side callback for cleanup when an engine is removed. Set by client bootstrap. */
-    private static java.util.function.Consumer<BlockPos> onRemovedCallback;
-
-    /** Two-stroke engine cycle phases. */
-    protected enum CyclePhase {
-        IDLE,
-        EXPANSION,
-        COMPRESSION;
-
-        private static final CyclePhase[] VALUES = values();
-
-        static CyclePhase fromOrdinal(int ordinal) {
-            return (ordinal >= 0 && ordinal < VALUES.length) ? VALUES[ordinal] : IDLE;
-        }
-    }
-
-    // State tracking
-    protected double temperature = 0;
-    protected float progress = 0;
-    protected CyclePhase cyclePhase = CyclePhase.IDLE;
-    protected HeatStage heatStage = HeatStage.COLD;
-    private boolean wasRunning = false;
-
-    // Energy storage
-    public final SimpleSidedEnergyContainer energyStorage = new SimpleSidedEnergyContainer() {
-        @Override
-        public long getCapacity() {
-            return getEnergyBufferCapacity();
-        }
-
-        @Override
-        public long getMaxInsert(@Nullable Direction side) {
-            return 0;
-        }
-
-        @Override
-        public long getMaxExtract(@Nullable Direction side) {
-            return (side != null && isOutputDirection(side)) ? getOutputPower() : 0;
-        }
-
-        @Override
-        protected void onFinalCommit() {
-            setChanged();
-        }
-    };
-
-    protected AbstractEngineBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
+    public AbstractEngineBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
     }
 
-    // ==================== Subclass Configuration ====================
-    // Abstract methods that subclasses must implement, plus overridable defaults.
-
-    /** Gets the maximum energy buffer capacity in RF. */
-    protected abstract long getEnergyBufferCapacity();
-
-    /** Gets the power output rate in RF/t. */
-    protected abstract long getOutputPower();
-
-    /** Gets the output direction for this engine from the block state. */
+    // Abstract getters - engines provide their spec and battery
+    protected abstract S getSpec();
+    public abstract SidedEnergyProvider getBattery();
     protected abstract Direction getOutputDirection();
+    protected abstract boolean isRedstonePowered(Level level, BlockState state);
 
-    /** Checks if the engine has redstone power. Implementations should check block state. */
-    protected abstract boolean isRedstonePowered();
+    // Hook methods - engines implement for custom behavior
+    protected abstract void burn();
+    protected abstract boolean computeRunning(Level level, BlockState state);
+    protected abstract boolean shouldStop(boolean running);
+    protected abstract void onStop();
+    public abstract boolean isRunning();
+    public abstract ProbeResult getProbeResult();
 
-    /** Gets the maximum temperature. At 100% of this value, engine enters OVERHEAT. */
-    public double getMaxTemperature() {
-        return 250;
+    // Static tick entry point
+    public static <T extends AbstractEngineBlockEntity<?>> void serverTick(
+            Level level, BlockPos pos, BlockState state, T be) {
+        if (level.isClientSide()) return;
+        be.tickServer(level, state);
     }
 
-    /** Gets the minimum temperature (at 0% energy). */
-    protected double getTemperatureFloor() {
-        return 20;
-    }
+    // Unified tick logic - identical across all engines
+    protected void tickServer(Level level, BlockState state) {
+        S spec = getSpec();
+        SidedEnergyProvider battery = getBattery();
 
-    /** Gets the energy decay rate in RF per tick when engine is off. */
-    protected long getEnergyDecayRate() {
-        return 10L;
-    }
+        spec.getEnergy().set(battery.getEnergy());
+        burn();
 
-    /** Whether this engine sends energy continuously or only during compression stroke. */
-    protected boolean sendsEnergyContinuously() {
-        return false;
-    }
+        boolean running = computeRunning(level, state);
+        tickGeneration = spec.getProducer().tick(running, spec.getEnergy());
+        spec.getDrain().tick(running, spec.getEnergy());
+        spec.getThermal().update(spec.getEnergy(), spec.getTemperature());
 
-    /** Whether this engine overheats, or just continues running after reaching max temperature. */
-    public boolean canOverheat() {
-        return true;
-    }
+        if (!overheated && spec.canOverheat()) {
+            overheated = spec.getEnergy().ratio() >= 1.0;
+        }
 
-    // ==================== Lifecycle Hooks ====================
-    // Override these to customize engine behavior.
-
-    /**
-     * Called each tick to produce energy from fuel or redstone signal.
-     * Override to implement engine-specific energy generation.
-     */
-    protected void produceEnergy() {
-        // Default: no energy production
-    }
-
-    /**
-     * Called once when the engine transitions from running to not running.
-     * Override to perform cleanup like resetting controllers.
-     */
-    protected void onShutdown() {
-        // Default: no action
-    }
-
-    // ==================== Main Tick ====================
-
-    /**
-     * Main tick method to be called from the block's ticker.
-     *
-     * <p>Orchestrates the engine update sequence:
-     * <ol>
-     *   <li>computeTemperature - derive heat from energy level</li>
-     *   <li>isOverheated check - handle overheat state (early exit, keeps overheat sticky)</li>
-     *   <li>isShutdown check - apply decay when not running, trigger onShutdown on transition</li>
-     *   <li>syncStage - update visual stage based on heat</li>
-     *   <li>produceEnergy - generate energy from fuel/redstone</li>
-     *   <li>advanceCycle - move the piston cycle forward</li>
-     * </ol>
-     */
-    public void tickEngine(Level level, BlockPos pos, BlockState state) {
-        if (level.isClientSide()) {
+        if (shouldStop(running)) {
+            onStop();
+            battery.setEnergy(spec.getEnergy().energy());
+            syncRenderToClient();
+            setChanged();
             return;
         }
 
-        computeTemperature();
-
-        if (isOverheated()) {
-            tickOverheat();
-            return;
+        EngineCycleState.AdvanceResult res = spec.getCycle().advance(spec.pistonSpeed());
+        long maxSend = spec.getOutput().maxSend(spec.getEnergy(), res);
+        if (maxSend > 0) {
+            long sent = sendEnergy(level, maxSend);
+            if (sent > 0) {
+                spec.getEnergy().remove(sent);
+            }
         }
 
-        if (isShutdown()) {
-            applyDecay();
-        }
-
-        syncStage();
-        produceEnergy();
-        advanceCycle();
+        battery.setEnergy(spec.getEnergy().energy());
+        syncRenderToClient();
         setChanged();
     }
 
-    /**
-     * Checks if the engine is currently shut down (not running).
-     * Also triggers onShutdown() once when transitioning from running to stopped.
-     */
-    private boolean isShutdown() {
-        boolean running = isRunning();
-        if (wasRunning && !running) {
-            onShutdown();
-        }
-        wasRunning = running;
-        return !running;
+    private long sendEnergy(Level level, long maxSend) {
+        Direction out = getOutputDirection();
+        BlockPos targetPos = worldPosition.relative(out);
+        EnergyStorage target = EnergyStorage.SIDED.find(level, targetPos, out.getOpposite());
+        if (target == null) return 0L;
+
+        EnergyStorage source = getBattery().getSideStorage(out);
+        long before = getBattery().getEnergy();
+        EnergyStorageUtil.move(source, target, maxSend, null);
+        long after = getBattery().getEnergy();
+        return Math.max(0L, before - after);
     }
 
-    /** Applies energy decay when engine is idle. */
-    private void applyDecay() {
-        long decay = getEnergyDecayRate();
-        if (energyStorage.amount >= decay) {
-            energyStorage.amount -= decay;
-        } else {
-            energyStorage.amount = 0;
-        }
+    // Rendering accessors
+    public float getPistonProgress01() { return getSpec().getCycle().progress(); }
+    public float getPistonSpeed() { return getSpec().pistonSpeed(); }
+    public HeatStage getHeatStage() { return getSpec().stage(); }
+    public long getTemperatureC() { return getSpec().getTemperature().celsius(); }
+    public boolean isOverheated() { return overheated; }
+    public boolean canOverheat() { return getSpec().canOverheat(); }
+
+    public void clearOverheated() {
+        if (!overheated) return;
+        overheated = false;
         setChanged();
-    }
-
-    /** Handles overheat state: drains energy and emits smoke particles. */
-    private void tickOverheat() {
-        energyStorage.amount = Math.max(energyStorage.amount - 50, 0);
-        setChanged();
-
-        if (level instanceof ServerLevel serverLevel && level.getRandom().nextInt(4) == 0) {
-            double x = getBlockPos().getX() + 0.5 + (level.getRandom().nextDouble() - 0.5) * 0.5;
-            double y = getBlockPos().getY() + 1.0;
-            double z = getBlockPos().getZ() + 0.5 + (level.getRandom().nextDouble() - 0.5) * 0.5;
-            serverLevel.sendParticles(ParticleTypes.LARGE_SMOKE, x, y, z, 1, 0, 0.05, 0, 0.01);
+        if (level != null && !level.isClientSide()) {
+            BlockState st = getBlockState();
+            level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
         }
     }
 
-    /** Syncs engine stage to block state if changed. */
-    private void syncStage() {
-        HeatStage newStage = computeStage();
-
-        if (newStage != heatStage) {
-            heatStage = newStage;
-            syncStageToBlock();
-        }
-
-        if (canOverheat()
-                && newStage == HeatStage.HOT
-                && level instanceof ServerLevel serverLevel
-                && level.getRandom().nextInt(4) == 0) {
-            double x = getBlockPos().getX() + 0.5 + (level.getRandom().nextDouble() - 0.5) * 0.5;
-            double y = getBlockPos().getY() + 1.0;
-            double z = getBlockPos().getZ() + 0.5 + (level.getRandom().nextDouble() - 0.5) * 0.5;
-            serverLevel.sendParticles(ParticleTypes.SMOKE, x, y, z, 1, 0, 0.05, 0, 0.01);
-        }
+    private void syncRenderToClient() {
+        if (level == null || level.isClientSide()) return;
+        if (--renderSyncCooldown > 0) return;
+        renderSyncCooldown = 4;
+        BlockState st = getBlockState();
+        level.sendBlockUpdated(worldPosition, st, st, Block.UPDATE_CLIENTS);
     }
 
-    private void syncStageToBlock() {
-        if (level == null) return;
-        BlockState newState = getBlockState().setValue(STAGE, heatStage);
-        level.setBlock(getBlockPos(), newState, Block.UPDATE_ALL);
-    }
-
-    // ==================== Heat System ====================
-
-    /** Computes temperature from energy level. Hotter when buffer is fuller. */
-    protected void computeTemperature() {
-        temperature = (getMaxTemperature() - getTemperatureFloor()) * getEnergyLevel() + getTemperatureFloor();
-    }
-
-    /** Computes the engine stage based on current heat level. */
-    protected HeatStage computeStage() {
-        double heatLevelRatio = getHeatLevel();
-
-        if (heatLevelRatio < 0.25) return HeatStage.COLD;
-        if (heatLevelRatio < 0.50) return HeatStage.COOL;
-        if (heatLevelRatio < 0.75) return HeatStage.WARM;
-        if (heatLevelRatio < 1.0 || !canOverheat()) return HeatStage.HOT;
-
-        return HeatStage.OVERHEAT;
-    }
-
-    /** Compute the piston speed based on current heat stage. */
-    public float getPistonSpeed() {
-        return switch (heatStage) {
-            case COLD -> 0.01f;
-            case COOL -> 0.02f;
-            case WARM -> 0.04f;
-            case HOT -> 0.08f;
-            case OVERHEAT -> 0.0f;
-        };
-    }
-
-    // ==================== Cycle System ====================
-
-    /**
-     * Advances the two-stroke engine cycle.
-     *
-     * <p>The cycle has two phases:
-     * <ul>
-     *   <li>Expansion (0 to 0.5): Energy accumulates in the buffer</li>
-     *   <li>Compression (0.5 to 1): Energy is pushed to the output</li>
-     * </ul>
-     *
-     * <p>When idle, the engine waits for redstone power to start a new cycle.
-     */
-    protected void advanceCycle() {
-        if (cyclePhase == CyclePhase.IDLE && isRedstonePowered()) {
-            cyclePhase = CyclePhase.EXPANSION;
-            return;
-        }
-
-        if (cyclePhase == CyclePhase.IDLE) {
-            return; // Don't advance progress while idle
-        }
-
-        progress += getPistonSpeed();
-
-        boolean justTransitioned = cyclePhase == CyclePhase.EXPANSION && progress > 0.5f;
-        if (justTransitioned) {
-            cyclePhase = CyclePhase.COMPRESSION;
-        }
-
-        if (sendsEnergyContinuously() || justTransitioned) {
-            sendEnergy();
-        }
-
-        if (progress >= 1.0f) {
-            progress = 0;
-            cyclePhase = CyclePhase.IDLE;
-        }
-    }
-
-    /** Sends energy to the block this engine is facing via Team Reborn Energy API. */
-    protected void sendEnergy() {
-        if (level == null || !isRedstonePowered()) return;
-
-        Direction outputDir = getOutputDirection();
-        BlockPos targetPos = getBlockPos().relative(outputDir);
-
-        EnergyStorage target = EnergyStorage.SIDED.find(level, targetPos, outputDir.getOpposite());
-
-        if (target != null) {
-            long maxSend = Math.min(getOutputPower(), energyStorage.amount);
-            EnergyStorage source = energyStorage.getSideStorage(outputDir);
-            EnergyStorageUtil.move(source, target, maxSend, null);
-        }
-    }
-
-    /** Adds energy to the buffer, capped at max capacity. */
-    protected void addEnergy(long amount) {
-        energyStorage.amount += amount;
-        if (energyStorage.amount > getEnergyBufferCapacity()) {
-            energyStorage.amount = getEnergyBufferCapacity();
-        }
-        setChanged();
-    }
-
-    // ==================== Public API ====================
-
-    /** Checks if the engine is currently in the overheat state. */
-    public boolean isOverheated() {
-        return heatStage == HeatStage.OVERHEAT;
-    }
-
-    /**
-     * Resets the engine from an overheated state.
-     * Drains all energy and resets the heat stage to COLD.
-     *
-     * @return true if the engine was overheated and was reset, false otherwise
-     */
-    public boolean resetOverheat() {
-        if (!isOverheated()) {
-            return false;
-        }
-        energyStorage.amount = 0;
-        temperature = getTemperatureFloor();
-        heatStage = HeatStage.COLD;
-        syncStageToBlock();
-        setChanged();
-        return true;
-    }
-
-    /** Checks if the engine is currently running (powered and not overheated). */
-    public boolean isRunning() {
-        return isRedstonePowered() && !isOverheated();
-    }
-
-    /** Checks if the given direction is this engine's output face. */
-    public boolean isOutputDirection(Direction direction) {
-        return direction == getOutputDirection();
-    }
-
-    public double getTemperature() {
-        return temperature;
-    }
-
-    public long getEnergy() {
-        return energyStorage.amount;
-    }
-
-    public float getProgress() {
-        return progress;
-    }
-
-    // ==================== Public Getters ====================
-
-    public HeatStage getHeatStage() {
-        return heatStage;
-    }
-
-    /** Gets the heat level as a ratio from 0.0 to 1.0. */
-    public double getHeatLevel() {
-        double maxTemp = getMaxTemperature();
-        if (maxTemp <= 0) {
-            return 0.0;
-        }
-        return temperature / maxTemp;
-    }
-
-    /** Gets the energy level as a ratio from 0.0 to 1.0. */
-    public double getEnergyLevel() {
-        long capacity = getEnergyBufferCapacity();
-        if (capacity <= 0) {
-            return 0.0;
-        }
-        return energyStorage.amount / (double) capacity;
-    }
-
-    public long getCurrentOutputPower() {
-        return getOutputPower();
-    }
-
-    // ==================== Probe Support ====================
-
-    /**
-     * Creates probe result with engine diagnostic information.
-     * Override in subclasses to add engine-specific entries.
-     *
-     * @return the probe result
-     */
-    public ProbeResult getProbeResult() {
-        ProbeResult.Builder builder = ProbeResult.builder("Engine Stats");
-        addProbeEntries(builder);
-        return builder.build();
-    }
-
-    /**
-     * Adds probe entries to the builder.
-     * Subclasses should call super and then add their own entries.
-     */
-    protected void addProbeEntries(ProbeResult.Builder builder) {
-        // Stage with color coding
-        HeatStage stage = getHeatStage();
-        builder.entry("Stage", stage.name(), getStageColor(stage));
-
-        // Temperature info
-        double temp = getTemperature();
-        double maxTemp = getMaxTemperature();
-        double heatLevel = getHeatLevel();
-        ChatFormatting tempColor =
-                heatLevel >= 1.0 ? ChatFormatting.RED : heatLevel >= 0.75 ? ChatFormatting.YELLOW : ChatFormatting.GREEN;
-        builder.entry("Temperature", String.format("%.0f\u00B0C (%.0f Max)", temp, maxTemp), tempColor);
-
-        // Energy info (buffer)
-        long storedEnergy = getEnergy();
-        double energyLevel = getEnergyLevel();
-        builder.entry(
-                "Energy",
-                String.format("%,d / %,d RF (%.1f%%)", storedEnergy, getEnergyBufferCapacity(), energyLevel * 100),
-                ChatFormatting.AQUA);
-
-        // Output power
-        builder.entry("Output Power", String.format("%d RF/t", getCurrentOutputPower()), ChatFormatting.LIGHT_PURPLE);
-
-        // Running state
-        builder.entry("Running", isRunning() ? "Yes" : "No", isRunning() ? ChatFormatting.GREEN : ChatFormatting.GRAY);
-
-        // Overheat warning
-        if (isOverheated()) {
-            builder.warning("OVERHEATED!");
-        }
-    }
-
-    private static ChatFormatting getStageColor(HeatStage stage) {
-        return switch (stage) {
-            case COLD -> ChatFormatting.BLUE;
-            case COOL -> ChatFormatting.GREEN;
-            case WARM -> ChatFormatting.YELLOW;
-            case HOT -> ChatFormatting.RED;
-            case OVERHEAT -> ChatFormatting.DARK_RED;
-        };
-    }
-
-    // ==================== Energy Storage Access ====================
-
-    // ==================== NBT Serialization ====================
-
-    @Override
-    protected void saveAdditional(ValueOutput view) {
-        CompoundTag engineData = new CompoundTag();
-        engineData.putLong("energy", energyStorage.amount);
-        engineData.putDouble("heat", temperature); // putDouble
-        engineData.putFloat("progress", progress); // putFloat
-        engineData.putInt("cyclePhase", cyclePhase.ordinal());
-        engineData.putInt("stage", heatStage.ordinal());
-
-        view.store("Engine", CompoundTag.CODEC, engineData);
-    }
-
-    @Override
-    protected void loadAdditional(ValueInput view) {
-        view.read("Engine", CompoundTag.CODEC).ifPresent(engineData -> {
-            energyStorage.amount = engineData.getLong("energy").orElse(0L);
-            temperature = engineData.getDouble("heat").orElse(0.0);
-            progress = engineData.getFloat("progress").orElse(0f);
-            cyclePhase = CyclePhase.fromOrdinal(engineData.getInt("cyclePhase").orElse(0));
-            heatStage = HeatStage.fromOrdinal(engineData.getInt("stage").orElse(0));
-        });
-    }
-
-    @Nullable @Override
-    public Packet<ClientGamePacketListener> getUpdatePacket() {
-        return ClientboundBlockEntityDataPacket.create(this);
-    }
-
-    @Override
-    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        return saveWithoutMetadata(registries);
-    }
-
-    // ==================== Lifecycle ====================
-
-    /**
-     * Sets a callback to be invoked when an engine block entity is removed.
-     * Used by client-side code to clean up render caches.
-     */
-    public static void setOnRemovedCallback(java.util.function.Consumer<BlockPos> callback) {
-        onRemovedCallback = callback;
-    }
-
-    @Override
-    public void setRemoved() {
-        super.setRemoved();
-        if (onRemovedCallback != null && level != null && level.isClientSide()) {
-            onRemovedCallback.accept(getBlockPos());
-        }
-    }
+    // Protected accessors for subclasses
+    protected boolean getOverheated() { return overheated; }
+    protected void setOverheated(boolean overheated) { this.overheated = overheated; }
+    protected long getTickGeneration() { return tickGeneration; }
 }

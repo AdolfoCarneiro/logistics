@@ -1,10 +1,8 @@
 package com.logistics.power.render;
 
-import static com.logistics.core.lib.power.AbstractEngineBlockEntity.STAGE;
-
 import com.logistics.LogisticsMod;
+import com.logistics.core.lib.engine.state.HeatStage;
 import com.logistics.core.lib.power.AbstractEngineBlockEntity;
-import com.logistics.core.lib.power.AbstractEngineBlockEntity.HeatStage;
 import com.logistics.core.render.ModelRegistry;
 import com.logistics.power.engine.block.entity.RedstoneEngineBlockEntity;
 import com.logistics.power.engine.block.entity.StirlingEngineBlockEntity;
@@ -107,8 +105,8 @@ public class EngineBlockEntityRenderer implements BlockEntityRenderer<AbstractEn
         state.pos = entity.getBlockPos();
         state.facing = entity.getBlockState().getValue(BlockStateProperties.FACING);
 
-        // Get stage from block state (synced automatically) for reliable rendering
-        state.stage = entity.getBlockState().getValue(STAGE);
+        // Get stage from block entity (computed from spec)
+        state.stage = entity.getHeatStage();
 
         // Note: Creative engine now uses dedicated CreativeEngineBlockEntityRenderer
 

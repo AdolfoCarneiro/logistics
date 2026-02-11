@@ -1,9 +1,10 @@
 package com.logistics.core.lib.engine.producer;
 
+import com.logistics.core.lib.engine.Producer;
 import com.logistics.core.lib.power.EnergyBuffer;
 import com.logistics.power.engine.PIDController;
 
-public final class PIDProducer {
+public final class PIDProducer implements Producer {
     // PID controller settings (tuned via run/pid_simulator.py)
     private static final double PID_KP = 25.0;
     private static final double PID_KI = 0.03;
@@ -33,6 +34,7 @@ public final class PIDProducer {
         this.maxGeneration = maxGeneration;
     }
 
+    @Override
     public long tick(boolean powered, EnergyBuffer energy) {
         if (!powered) return 0;
 
@@ -58,6 +60,7 @@ public final class PIDProducer {
         this.accumulator = accumulator;
     }
 
+    @Override
     public void reset() {
         this.accumulator = 0;
         this.pidController.reset();

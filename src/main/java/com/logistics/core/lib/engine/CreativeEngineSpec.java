@@ -10,7 +10,7 @@ import com.logistics.core.lib.engine.state.PistonSpeedTable;
 import com.logistics.core.lib.engine.state.TemperatureState;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class CreativeEngineSpec {
+public final class CreativeEngineSpec implements EngineSpec {
     public static final long CAPACITY = 10_000L;
     public static final long DRAIN_RATE = 0L; // Creative engine doesn't drain
 
@@ -65,15 +65,53 @@ public final class CreativeEngineSpec {
         return OUTPUT_LEVELS[outputLevelIndex];
     }
 
+    @Override
+    public EnergyBuffer getEnergy() {
+        return energy;
+    }
+
+    @Override
+    public TemperatureState getTemperature() {
+        return temp;
+    }
+
+    @Override
+    public EngineCycleState getCycle() {
+        return cycle;
+    }
+
+    @Override
+    public Producer getProducer() {
+        return producer;
+    }
+
+    @Override
+    public Drain getDrain() {
+        return drain;
+    }
+
+    @Override
+    public ThermalModel getThermal() {
+        return thermal;
+    }
+
+    @Override
+    public Output getOutput() {
+        return output;
+    }
+
+    @Override
     public HeatStage stage() {
         return speeds.stage(temp.ratio(), CAN_OVERHEAT);
     }
 
+    @Override
     public float pistonSpeed() {
         // Speed scales with output level
         return speeds.speed(temp.ratio(), CAN_OVERHEAT) * (outputLevelIndex + 1);
     }
 
+    @Override
     public boolean canOverheat() {
         return CAN_OVERHEAT;
     }

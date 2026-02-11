@@ -1,8 +1,9 @@
 package com.logistics.core.lib.engine.producer;
 
+import com.logistics.core.lib.engine.Producer;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class ConstantProducer {
+public final class ConstantProducer implements Producer {
     private final long rfPerTick;
 
     public ConstantProducer(long rfPerTick) {
@@ -12,11 +13,13 @@ public final class ConstantProducer {
         this.rfPerTick = rfPerTick;
     }
 
+    @Override
     public long tick(boolean powered, EnergyBuffer energy) {
         if (!powered) return 0;
         return energy.add(rfPerTick);
     }
 
+    @Override
     public void reset() {
         // No state to reset
     }

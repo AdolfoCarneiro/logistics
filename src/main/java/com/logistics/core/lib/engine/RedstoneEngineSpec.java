@@ -10,7 +10,7 @@ import com.logistics.core.lib.engine.state.TemperatureState;
 import com.logistics.core.lib.engine.heat.CoupledThermalModel;
 import com.logistics.core.lib.power.EnergyBuffer;
 
-public final class RedstoneEngineSpec {
+public final class RedstoneEngineSpec implements EngineSpec {
     public static final long CAPACITY = 1000L;
     public static final long DRAIN_RATE = 10L;
 
@@ -33,14 +33,52 @@ public final class RedstoneEngineSpec {
     public final PulsedOutput output = new PulsedOutput(RF_ON_OUTPUT);
     public final PistonSpeedTable speeds = new PistonSpeedTable();
 
+    @Override
+    public EnergyBuffer getEnergy() {
+        return energy;
+    }
+
+    @Override
+    public TemperatureState getTemperature() {
+        return temp;
+    }
+
+    @Override
+    public EngineCycleState getCycle() {
+        return cycle;
+    }
+
+    @Override
+    public Producer getProducer() {
+        return producer;
+    }
+
+    @Override
+    public Drain getDrain() {
+        return drain;
+    }
+
+    @Override
+    public ThermalModel getThermal() {
+        return thermal;
+    }
+
+    @Override
+    public Output getOutput() {
+        return output;
+    }
+
+    @Override
     public HeatStage stage() {
         return speeds.stage(temp.ratio(), CAN_OVERHEAT);
     }
 
+    @Override
     public float pistonSpeed() {
         return speeds.speed(temp.ratio(), CAN_OVERHEAT);
     }
 
+    @Override
     public boolean canOverheat() {
         return CAN_OVERHEAT;
     }

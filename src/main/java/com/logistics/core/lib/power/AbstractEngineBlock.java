@@ -1,10 +1,7 @@
 package com.logistics.core.lib.power;
 
-import static com.logistics.core.lib.power.AbstractEngineBlockEntity.STAGE;
-
 import com.logistics.core.lib.block.Probeable;
 import com.logistics.core.lib.block.Wrenchable;
-import com.logistics.core.lib.power.AbstractEngineBlockEntity.HeatStage;
 import com.logistics.core.lib.support.ProbeResult;
 import java.util.Collections;
 import java.util.List;
@@ -34,11 +31,11 @@ import team.reborn.energy.api.EnergyStorage;
 
 /**
  * Abstract base class for all engine blocks.
- * Provides common functionality for FACING, POWERED, STAGE properties and redstone handling.
+ * Provides common functionality for FACING, POWERED properties and redstone handling.
  *
  * @param <E> The type of engine block entity this block creates
  */
-public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity> extends BaseEntityBlock
+public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity<?>> extends BaseEntityBlock
         implements Probeable, Wrenchable {
     public static final EnumProperty<Direction> FACING = BlockStateProperties.FACING;
     public static final BooleanProperty POWERED = BlockStateProperties.POWERED;
@@ -47,8 +44,7 @@ public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity> e
         super(settings);
         registerDefaultState(defaultBlockState()
                 .setValue(FACING, Direction.NORTH)
-                .setValue(POWERED, false)
-                .setValue(STAGE, HeatStage.COLD));
+                .setValue(POWERED, false));
     }
 
     /**
@@ -63,7 +59,7 @@ public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity> e
      * Applies additional placement state that subclasses want to add.
      * Base implementation returns the state unchanged.
      *
-     * @param base the base placement state with FACING, POWERED, STAGE already set
+     * @param base the base placement state with FACING, POWERED already set
      * @param ctx the placement context
      * @return the state with additional properties applied
      */
@@ -88,7 +84,7 @@ public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity> e
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING, POWERED, STAGE);
+        builder.add(FACING, POWERED);
         for (Property<?> property : getAdditionalProperties()) {
             builder.add(property);
         }
@@ -107,7 +103,7 @@ public abstract class AbstractEngineBlock<E extends AbstractEngineBlockEntity> e
         boolean powered = hasDirectRedstonePower(ctx.getLevel(), ctx.getClickedPos());
 
         BlockState base =
-                defaultBlockState().setValue(FACING, facing).setValue(POWERED, powered).setValue(STAGE, HeatStage.COLD);
+                defaultBlockState().setValue(FACING, facing).setValue(POWERED, powered);
 
         return applyAdditionalPlacementState(base, ctx);
     }
