@@ -89,6 +89,21 @@ public record PipeContext(Level world, BlockPos pos, BlockState state, IPipeAcce
     }
 
     /**
+     * Attempt to consume {@code amount} RF from the logistics network's registered batteries.
+     * Uses a Team Reborn transaction internally — energy is only deducted if the full amount
+     * is available. Returns {@code true} if consumed; {@code false} if insufficient.
+     *
+     * <p>Returns {@code true} when no network is attached yet (brief bootstrap window)
+     * so modules don't stall before the network forms. Once a network exists with no battery,
+     * this correctly returns {@code false}.
+     */
+    public boolean consumeEnergy(long amount) {
+        ILogisticsNetwork net = network();
+        if (net == null) return true;
+        return net.consumeEnergy(amount);
+    }
+
+    /**
      * Check if this pipe is receiving redstone power.
      * Used by modules like BoostModule to conditionally enable behaviors.
      *

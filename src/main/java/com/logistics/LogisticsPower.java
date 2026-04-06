@@ -2,7 +2,9 @@ package com.logistics;
 
 import com.logistics.core.bootstrap.DomainBootstrap;
 import com.logistics.core.lib.resource.ResourceId;
+import com.logistics.power.block.BatteryBlock;
 import com.logistics.power.block.CreativeSinkBlock;
+import com.logistics.power.block.entity.BatteryBlockEntity;
 import com.logistics.power.block.entity.CreativeSinkBlockEntity;
 import com.logistics.power.engine.block.CreativeEngineBlock;
 import com.logistics.power.engine.block.RedstoneEngineBlock;
@@ -59,6 +61,7 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
         public static Block STIRLING_ENGINE;
         public static Block CREATIVE_ENGINE;
         public static Block CREATIVE_SINK;
+        public static Block BATTERY;
 
         static void register() {
             REDSTONE_ENGINE = INSTANCE.registerBlockWithItem("redstone_engine",
@@ -69,6 +72,8 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
                 props -> new CreativeEngineBlock(props.strength(5.0f).sound(SoundType.STONE).noOcclusion()));
             CREATIVE_SINK = INSTANCE.registerBlockWithItem("creative_sink",
                 props -> new CreativeSinkBlock(props.strength(5.0f).sound(SoundType.STONE)));
+            BATTERY = INSTANCE.registerBlockWithItem("battery",
+                props -> new BatteryBlock(props.strength(3.0f).sound(SoundType.METAL)));
         }
     }
 
@@ -79,6 +84,7 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
         public static BlockEntityType<StirlingEngineBlockEntity> STIRLING_ENGINE_BLOCK_ENTITY;
         public static BlockEntityType<CreativeEngineBlockEntity> CREATIVE_ENGINE_BLOCK_ENTITY;
         public static BlockEntityType<CreativeSinkBlockEntity> CREATIVE_SINK_BLOCK_ENTITY;
+        public static BlockEntityType<BatteryBlockEntity> BATTERY_BLOCK_ENTITY;
 
         static void register() {
             REDSTONE_ENGINE_BLOCK_ENTITY =
@@ -89,6 +95,8 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
                 INSTANCE.registerBlockEntity("creative_engine", CreativeEngineBlockEntity::new, BLOCK.CREATIVE_ENGINE);
             CREATIVE_SINK_BLOCK_ENTITY =
                 INSTANCE.registerBlockEntity("creative_sink", CreativeSinkBlockEntity::new, BLOCK.CREATIVE_SINK);
+            BATTERY_BLOCK_ENTITY =
+                INSTANCE.registerBlockEntity("battery", BatteryBlockEntity::new, BLOCK.BATTERY);
         }
     }
 
@@ -110,6 +118,7 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
                 BLOCK.REDSTONE_ENGINE,
                 BLOCK.STIRLING_ENGINE,
                 BLOCK.CREATIVE_ENGINE,
+                BLOCK.BATTERY,
                 BLOCK.CREATIVE_SINK
         );
     }

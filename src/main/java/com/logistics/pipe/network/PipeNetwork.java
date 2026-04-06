@@ -3,13 +3,16 @@ package com.logistics.pipe.network;
 import com.logistics.LogisticsMod;
 import com.logistics.core.lib.network.*;
 import net.fabricmc.fabric.api.transfer.v1.item.ItemVariant;
+import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import team.reborn.energy.api.EnergyStorage;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +34,9 @@ public class PipeNetwork implements ILogisticsNetwork {
 
     // Satellite registry: logical ID → pipe position
     private final Map<String, BlockPos> satellites = new HashMap<>();
+
+    // Energy sources registered by adjacent Battery blocks (pos → storage)
+    private final Map<BlockPos, EnergyStorage> energySources = new LinkedHashMap<>();
 
     /**
      * Constructor with dependency injection.
@@ -110,6 +116,34 @@ public class PipeNetwork implements ILogisticsNetwork {
 
     public int size() {
         return graph.size();
+    }
+
+    @Override
+    public void registerEnergySource(BlockPos pos, EnergyStorage storage) {
+        energySources.put(pos, storage);
+    }
+
+    @Override
+    public void unregisterEnergySource(BlockPos pos) {
+        energySources.remove(pos);
+    }
+
+    @Override
+    public boolean consumeEnergy(long amount) {
+        if (energySources.isEmpty()) return false;
+        try (Transaction tx = Transaction.openOuter()) {
+            long remaining = amount;
+            for (EnergyStorage source : energySources.values()) {
+                remaining -= source.extract(remaining, tx);
+                if (remaining <= 0) break;
+            }
+            if (remaining <= 0) {
+                tx.commit();
+                return true;
+            }
+            // tx closes/aborts — no energy consumed
+            return false;
+        }
     }
 
     /**

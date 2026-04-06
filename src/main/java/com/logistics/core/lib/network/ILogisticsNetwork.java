@@ -259,6 +259,37 @@ public interface ILogisticsNetwork {
      */
     default Set<String> getAvailableSatelliteIds() { return Set.of(); }
 
+    // ===== Energy Operations =====
+
+    /**
+     * Register an energy source (e.g. a Battery block) with this network.
+     * The source's stored energy will be drawn on by module operations via {@link #consumeEnergy}.
+     * Safe to call repeatedly with the same position — replaces the existing entry.
+     *
+     * @param pos     world position of the energy source block
+     * @param storage Team Reborn {@link team.reborn.energy.api.EnergyStorage} to draw from
+     */
+    default void registerEnergySource(BlockPos pos, team.reborn.energy.api.EnergyStorage storage) {}
+
+    /**
+     * Unregister an energy source at the given position.
+     * Called when the battery is removed or the network splits.
+     *
+     * @param pos world position of the energy source block
+     */
+    default void unregisterEnergySource(BlockPos pos) {}
+
+    /**
+     * Attempt to consume {@code amount} RF from all registered energy sources.
+     * Uses a Team Reborn transaction: draws from sources in registration order until
+     * satisfied, then commits atomically. Returns {@code false} if insufficient energy
+     * is available — no energy is consumed in that case.
+     *
+     * @param amount RF to consume
+     * @return true if the full amount was consumed and committed; false otherwise
+     */
+    default boolean consumeEnergy(long amount) { return false; }
+
     // ===== Routing Operations =====
 
     /**
