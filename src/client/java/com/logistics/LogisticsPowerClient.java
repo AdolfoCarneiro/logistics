@@ -4,6 +4,7 @@ import com.logistics.core.bootstrap.DomainBootstrap;
 import com.logistics.core.lib.power.AbstractEngineBlockEntity;
 import com.logistics.core.lib.resource.ResourceId;
 import com.logistics.core.render.ModelKeyRegistry;
+import com.logistics.power.render.BatteryBlockEntityRenderer;
 import com.logistics.power.render.EngineBlockEntityRenderer;
 import com.logistics.power.screen.StirlingEngineScreen;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -44,6 +45,9 @@ public final class LogisticsPowerClient implements DomainBootstrap {
         BlockEntityRenderers.register(LogisticsPower.ENTITY.STIRLING_ENGINE_BLOCK_ENTITY, EngineBlockEntityRenderer::new);
         BlockEntityRenderers.register(LogisticsPower.ENTITY.CREATIVE_ENGINE_BLOCK_ENTITY, EngineBlockEntityRenderer::new);
 
+        // Register battery block entity renderer (charge level overlay)
+        BlockEntityRenderers.register(LogisticsPower.ENTITY.BATTERY_BLOCK_ENTITY, BatteryBlockEntityRenderer::new);
+
         // Register screens
         MenuScreens.register(LogisticsPower.SCREEN.STIRLING_ENGINE, StirlingEngineScreen::new);
 
@@ -66,6 +70,17 @@ public final class LogisticsPowerClient implements DomainBootstrap {
         public static final ExtraModelKey<BlockStateModel> STIRLING_PISTON = REGISTRY.registerModel("stirling_engine_piston");
         public static final ExtraModelKey<BlockStateModel> CREATIVE_BELLOW = REGISTRY.registerModel("creative_engine_bellow");
         public static final ExtraModelKey<BlockStateModel> CREATIVE_PISTON = REGISTRY.registerModel("creative_engine_piston");
+
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_1  = REGISTRY.registerModel("battery_charge_1");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_2  = REGISTRY.registerModel("battery_charge_2");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_3  = REGISTRY.registerModel("battery_charge_3");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_4  = REGISTRY.registerModel("battery_charge_4");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_5  = REGISTRY.registerModel("battery_charge_5");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_6  = REGISTRY.registerModel("battery_charge_6");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_7  = REGISTRY.registerModel("battery_charge_7");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_8  = REGISTRY.registerModel("battery_charge_8");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_9  = REGISTRY.registerModel("battery_charge_9");
+        public static final ExtraModelKey<BlockStateModel> BATTERY_CHARGE_10 = REGISTRY.registerModel("battery_charge_10");
 
         static Iterable<Map.Entry<ExtraModelKey<BlockStateModel>, ResourceId>> getAllModels() {
             return REGISTRY.getAllModels();

@@ -3,6 +3,7 @@ package com.logistics;
 import com.logistics.core.bootstrap.DomainBootstrap;
 import com.logistics.core.lib.resource.ResourceId;
 import com.logistics.power.block.BatteryBlock;
+import com.logistics.power.block.BatteryBlockItem;
 import com.logistics.power.block.CreativeSinkBlock;
 import com.logistics.power.block.entity.BatteryBlockEntity;
 import com.logistics.power.block.entity.CreativeSinkBlockEntity;
@@ -73,7 +74,8 @@ public final class LogisticsPower extends LogisticsMod implements DomainBootstra
             CREATIVE_SINK = INSTANCE.registerBlockWithItem("creative_sink",
                 props -> new CreativeSinkBlock(props.strength(5.0f).sound(SoundType.STONE)));
             BATTERY = INSTANCE.registerBlockWithItem("battery",
-                props -> new BatteryBlock(props.strength(3.0f).sound(SoundType.METAL)));
+                props -> new BatteryBlock(props.strength(3.0f).sound(SoundType.METAL)),
+                BatteryBlockItem::new);
         }
     }
 

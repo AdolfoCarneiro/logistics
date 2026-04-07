@@ -2,12 +2,17 @@ package com.logistics.core.lib.power;
 
 import com.logistics.core.lib.BaseBlockEntity;
 import com.logistics.core.lib.block.capability.HasEnergyStorage;
+import com.logistics.core.lib.block.capability.PipeConnection;
 import com.logistics.core.lib.energy.EnergyComponent;
 import com.logistics.core.lib.network.ILogisticsNetwork;
 import com.logistics.core.lib.pipe.IPipeAccess;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.TypedEntityData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -36,7 +41,7 @@ import java.util.Set;
  * draws from them in registration order until the requested amount is satisfied.
  */
 public abstract class AbstractBatteryBlockEntity extends BaseBlockEntity
-        implements HasEnergyStorage, AcceptsLowTierEnergy {
+        implements HasEnergyStorage, AcceptsLowTierEnergy, PipeConnection {
 
     /** Max RF to push into a single adjacent machine per tick. */
     private static final long MAX_OUTPUT_PER_SIDE = 200L;
@@ -49,7 +54,12 @@ public abstract class AbstractBatteryBlockEntity extends BaseBlockEntity
     /** Networks this battery is currently registered with. */
     private final Set<ILogisticsNetwork> registeredNetworks = new HashSet<>();
 
-    private int networkScanTick = 0;
+    // Start at NETWORK_SCAN_INTERVAL - 1 so the first tick triggers an immediate scan.
+    // Ensures the battery registers with adjacent networks as soon as it is placed.
+    private int networkScanTick = NETWORK_SCAN_INTERVAL - 1;
+
+    /** Last discrete charge level (0–10) sent to the client. -1 forces sync on first tick. */
+    private int lastSyncedLevel = -1;
 
     protected AbstractBatteryBlockEntity(
             BlockEntityType<?> type, BlockPos pos, BlockState state,
@@ -64,6 +74,18 @@ public abstract class AbstractBatteryBlockEntity extends BaseBlockEntity
         if (level.isClientSide()) return;
         entity.pushEnergyToMachines(level, pos);
         entity.refreshNetworkRegistrations(level, pos);
+        entity.syncChargeLevelIfChanged();
+    }
+
+    /** Sends a block entity data packet to the client when the discrete charge level (0–10) changes. */
+    private void syncChargeLevelIfChanged() {
+        long cap = energy.getCapacity();
+        float charge = cap > 0 ? (float) energy.amount / cap : 0f;
+        int level = charge <= 0f ? 0 : Math.max(1, Math.round(charge * 10));
+        if (level != lastSyncedLevel) {
+            lastSyncedLevel = level;
+            markDirtyAndSync();
+        }
     }
 
     /** Push energy into adjacent blocks that have energy storage (skipping pipe blocks). */
@@ -117,6 +139,40 @@ public abstract class AbstractBatteryBlockEntity extends BaseBlockEntity
             net.unregisterEnergySource(worldPosition);
         }
         registeredNetworks.clear();
+    }
+
+    // ==================== PipeConnection ====================
+
+    /**
+     * Batteries expose a PIPE-type connection so adjacent pipes draw a connection arm and
+     * recognise the battery as a network power source. Items are never accepted — the battery
+     * is purely an energy node, not an item inventory.
+     */
+    @Override
+    public PipeConnection.Type getConnectionType(Direction direction) {
+        return PipeConnection.Type.PIPE;
+    }
+
+    @Override
+    public boolean addItem(Direction from, ItemStack stack) {
+        return false;
+    }
+
+    // ==================== Item Drop Components ====================
+
+    /**
+     * Exposes the stored energy as {@code minecraft:block_entity_data} so that the
+     * {@code copy_components} loot function can copy it onto the dropped item, and so
+     * that {@link net.minecraft.world.item.BlockItem} can restore it when the item is placed.
+     */
+    @Override
+    protected void collectImplicitComponents(DataComponentMap.Builder builder) {
+        super.collectImplicitComponents(builder);
+        CompoundTag logisticsData = new CompoundTag();
+        energy.writeNbt(logisticsData, "Energy");
+        CompoundTag tag = new CompoundTag();
+        tag.put("LogisticsData", logisticsData);
+        builder.set(DataComponents.BLOCK_ENTITY_DATA, TypedEntityData.of(getType(), tag));
     }
 
     // ==================== HasEnergyStorage ====================

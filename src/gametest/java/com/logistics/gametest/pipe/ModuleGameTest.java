@@ -1,6 +1,7 @@
 package com.logistics.gametest.pipe;
 
 import com.logistics.LogisticsPipe;
+import com.logistics.LogisticsPower;
 import com.logistics.pipe.Pipe;
 import com.logistics.core.lib.pipe.PipeContext;
 import com.logistics.pipe.block.PipeBlock;
@@ -18,9 +19,11 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
+import net.fabricmc.fabric.api.transfer.v1.transaction.Transaction;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import team.reborn.energy.api.EnergyStorage;
 
 import java.util.List;
 
@@ -431,9 +434,19 @@ public class ModuleGameTest {
     public void testSinkModuleFilterMatchRoutesToInventory(GameTestHelper context) {
         BlockPos pipePos = new BlockPos(1, 1, 0);
         BlockPos chestPos = new BlockPos(0, 1, 0); // WEST of pipe
+        BlockPos batteryPos = new BlockPos(1, 0, 0); // below pipe
 
         context.setBlock(chestPos, Blocks.CHEST);
         context.setBlock(pipePos, LogisticsPipe.BLOCK.BASIC_LOGISTICS_PIPE);
+        context.setBlock(batteryPos, LogisticsPower.BLOCK.BATTERY);
+        EnergyStorage batteryStorage = EnergyStorage.SIDED.find(
+                context.getLevel(), context.absolutePos(batteryPos), null);
+        if (batteryStorage != null) {
+            try (Transaction tx = Transaction.openOuter()) {
+                batteryStorage.insert(100_000L, tx);
+                tx.commit();
+            }
+        }
 
         PipeBlockEntity pipe = context.getBlockEntity(pipePos, PipeBlockEntity.class);
         if (pipe == null) {
@@ -479,9 +492,19 @@ public class ModuleGameTest {
     public void testSinkModuleDefaultRouteAcceptsItems(GameTestHelper context) {
         BlockPos pipePos = new BlockPos(1, 1, 0);
         BlockPos chestPos = new BlockPos(0, 1, 0); // WEST of pipe — only connection
+        BlockPos batteryPos = new BlockPos(1, 0, 0); // below pipe
 
         context.setBlock(chestPos, Blocks.CHEST);
         context.setBlock(pipePos, LogisticsPipe.BLOCK.BASIC_LOGISTICS_PIPE);
+        context.setBlock(batteryPos, LogisticsPower.BLOCK.BATTERY);
+        EnergyStorage batteryStorage = EnergyStorage.SIDED.find(
+                context.getLevel(), context.absolutePos(batteryPos), null);
+        if (batteryStorage != null) {
+            try (Transaction tx = Transaction.openOuter()) {
+                batteryStorage.insert(100_000L, tx);
+                tx.commit();
+            }
+        }
 
         PipeBlockEntity pipe = context.getBlockEntity(pipePos, PipeBlockEntity.class);
         if (pipe == null) {

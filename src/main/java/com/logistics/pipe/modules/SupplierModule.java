@@ -67,8 +67,8 @@ public class SupplierModule implements Module, TickingModule, RoutingModule {
     private static final int CHECK_INTERVAL = 20;
     public static final int MAX_SUPPLY_SLOTS = 9;
 
-    // TODO(Phase 11): Energy costs
-    // private static final int RF_PER_ITEM = 1;
+    // Energy cost per supply check cycle (LP reference: active supplier 10 LP = 20 RF).
+    private static final long RF_PER_DISPATCH_CYCLE = 20;
 
     @Override
     public void onTick(PipeContext ctx) {
@@ -163,8 +163,9 @@ public class SupplierModule implements Module, TickingModule, RoutingModule {
      * are consumed immediately (e.g. furnace input), avoiding NBT drift.
      */
     private void checkAndSupply(PipeContext ctx) {
+        if (!ctx.consumeEnergy(RF_PER_DISPATCH_CYCLE)) return;
+
         ILogisticsNetwork network = NetworkRegistry.getOrCreateNetwork(ctx.world(), ctx.pos());
-        if (network == null) return;
 
         Direction supplierDir = getSupplierDirection(ctx);
         if (supplierDir == null) return;
@@ -394,12 +395,6 @@ public class SupplierModule implements Module, TickingModule, RoutingModule {
 
     private boolean isSupplierFace(PipeContext ctx, Direction direction) {
         return getSupplierDirection(ctx) == direction;
-    }
-
-    @Override
-    public boolean acceptsLowTierEnergyFrom(PipeContext ctx, Direction from) {
-        // TODO(Phase 11): Accept energy for supply costs
-        return false; // For now, no energy required
     }
 
     /**

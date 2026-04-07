@@ -78,6 +78,8 @@ public class ProcessModule implements Module, TickingModule, RoutingModule, Disp
     private static final int EXTRACT_INTERVAL = 6;
     // Priority: between Provider (1) and Crafter (5)
     static final int PROCESS_PRIORITY = 3;
+    // Energy cost per item dispatched (LP reference: crafter 10 LP = 20 RF).
+    private static final long RF_PER_ITEM = 20;
     // Maximum number of queued orders (soft cap to prevent unbounded growth)
     private static final int MAX_QUEUE_SIZE = 64;
 
@@ -287,6 +289,8 @@ public class ProcessModule implements Module, TickingModule, RoutingModule, Disp
         // Cap to the originally-requested amount: the machine may produce more per batch than
         // was ordered. Excess is routed to a sink rather than force-routed to the requester.
         long actualAmount = Math.min(amount, executions * outCount);
+
+        if (!ctx.consumeEnergy(RF_PER_ITEM * actualAmount)) return 0;
 
         ILogisticsNetwork network = NetworkRegistry.getOrCreateNetwork(ctx.world(), ctx.pos());
         if (network == null) return 0;

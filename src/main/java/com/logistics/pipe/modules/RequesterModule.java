@@ -49,7 +49,8 @@ public class RequesterModule implements Module, TickingModule {
     private static final int REQUEST_INTERVAL = 20;
     public static final int MAX_REQUEST_SLOTS = 9;
     public static final int MAX_REQUEST_AMOUNT = 576;
-    private static final long RF_PER_REQUEST_CYCLE = 10;
+    // Energy cost per request initiation (LP reference: 5 LP = 10 RF).
+    private static final long RF_PER_REQUEST = 10;
 
     @Override
     public void onTick(PipeContext ctx) {
@@ -119,7 +120,7 @@ public class RequesterModule implements Module, TickingModule {
             return;
         }
 
-        if (!ctx.consumeEnergy(RF_PER_REQUEST_CYCLE)) return;
+        if (!ctx.consumeEnergy(RF_PER_REQUEST)) return;
 
         List<RequestConfig> configs = getRequestConfigs(ctx);
         if (configs.isEmpty()) {
@@ -150,7 +151,7 @@ public class RequesterModule implements Module, TickingModule {
                 network.placeOrder(ItemVariant.of(stack), clamped, ctx.pos());
 
                 // TODO(Phase 11): Consume energy
-                // ctx.setEnergy(ctx.getEnergy() - RF_PER_REQUEST_CYCLE);
+                // ctx.setEnergy(ctx.getEnergy() - RF_PER_REQUEST);
 
                 break; // Only process one request per cycle
             }

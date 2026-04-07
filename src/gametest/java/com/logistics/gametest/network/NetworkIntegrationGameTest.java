@@ -1,6 +1,7 @@
 package com.logistics.gametest.network;
 
 import com.logistics.LogisticsPipe;
+import com.logistics.LogisticsPower;
 import com.logistics.core.lib.pipe.PipeContext;
 import com.logistics.core.lib.pipe.TravelingItem;
 import com.logistics.pipe.block.PipeBlock;
@@ -20,6 +21,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
+import team.reborn.energy.api.EnergyStorage;
 
 /**
  * Tick-based game tests for multi-block logistics network behaviours.
@@ -127,9 +129,19 @@ public class NetworkIntegrationGameTest {
     public void testBasicSinkDeliveresToAdjacentChest(GameTestHelper context) {
         BlockPos sinkPos = new BlockPos(0, 1, 0);
         BlockPos chestPos = new BlockPos(1, 1, 0);
+        BlockPos batteryPos = new BlockPos(0, 0, 0); // below pipe
 
         context.setBlock(chestPos, Blocks.CHEST);
         context.setBlock(sinkPos, LogisticsPipe.BLOCK.BASIC_LOGISTICS_PIPE);
+        context.setBlock(batteryPos, LogisticsPower.BLOCK.BATTERY);
+        EnergyStorage batteryStorage = EnergyStorage.SIDED.find(
+                context.getLevel(), context.absolutePos(batteryPos), null);
+        if (batteryStorage != null) {
+            try (Transaction tx = Transaction.openOuter()) {
+                batteryStorage.insert(100_000L, tx);
+                tx.commit();
+            }
+        }
 
         PipeBlockEntity pipeEntity = context.getBlockEntity(sinkPos, PipeBlockEntity.class);
         if (pipeEntity == null) {
@@ -251,6 +263,7 @@ public class NetworkIntegrationGameTest {
         BlockPos transportPos = new BlockPos(2, 1, 0);
         BlockPos requesterPos = new BlockPos(3, 1, 0);
         BlockPos destChestPos = new BlockPos(4, 1, 0);
+        BlockPos batteryPos = new BlockPos(1, 0, 0); // below provider pipe
 
         // Place dest chest first so the requester auto-selects EAST toward it on placement
         context.setBlock(destChestPos, Blocks.CHEST);
@@ -258,6 +271,15 @@ public class NetworkIntegrationGameTest {
         context.setBlock(transportPos, LogisticsPipe.BLOCK.COPPER_TRANSPORT_PIPE);
         context.setBlock(providerPos, LogisticsPipe.BLOCK.PROVIDER_LOGISTICS_PIPE);
         context.setBlock(sourceChestPos, Blocks.CHEST);
+        context.setBlock(batteryPos, LogisticsPower.BLOCK.BATTERY);
+        EnergyStorage batteryStorage = EnergyStorage.SIDED.find(
+                context.getLevel(), context.absolutePos(batteryPos), null);
+        if (batteryStorage != null) {
+            try (Transaction tx = Transaction.openOuter()) {
+                batteryStorage.insert(100_000L, tx);
+                tx.commit();
+            }
+        }
 
         // Pre-fill source chest with 4 diamonds
         Storage<ItemVariant> sourceStorage = ItemStorage.SIDED.find(
