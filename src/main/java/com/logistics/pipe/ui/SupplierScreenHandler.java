@@ -52,7 +52,7 @@ public class SupplierScreenHandler extends AbstractContainerMenu {
     }
 
     public SupplierScreenHandler(
-            int syncId, Container playerInventory, PipeBlockEntity pipeEntity, String targetModuleStateKey) {
+            int syncId, Container playerInventory, PipeBlockEntity pipeEntity, @Nullable String targetModuleStateKey) {
         this(syncId, playerInventory, pipeEntity, targetModuleStateKey, new SimpleContainerData(1));
     }
 

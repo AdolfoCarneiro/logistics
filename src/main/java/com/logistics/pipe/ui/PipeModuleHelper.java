@@ -90,6 +90,7 @@ public class PipeModuleHelper {
         }
     }
 
+    @Nullable
     public static <T extends Module> T getModule(
         PipeBlockEntity pipeEntity,
         Class<T> moduleClass,

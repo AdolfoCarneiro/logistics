@@ -32,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -59,8 +60,8 @@ public class ChassisPipe extends Pipe {
         return ModuleItem.moduleStateKey(stack, module);
     }
 
-    private record DynamicModule(Module module, String stateKey) {
-        PipeContext scopedContext(PipeContext ctx) {
+    public record DynamicModule(Module module, String stateKey) {
+        public PipeContext scopedContext(PipeContext ctx) {
             return ctx.withModuleStateKey(module, stateKey());
         }
     }
@@ -123,26 +124,35 @@ public class ChassisPipe extends Pipe {
         return modules;
     }
 
+    /**
+     * Loads the module from a chassis slot, assigning a persistent module ID if one is missing.
+     * Returns empty if the slot is unoccupied or does not hold a {@link ModuleItem}.
+     */
+    public static Optional<DynamicModule> loadSlot(PipeContext ctx, int slotIndex, RegistryOps<Tag> ops) {
+        var state = ctx.moduleState(STATE_KEY);
+        String slotKey = String.valueOf(slotIndex);
+        Tag tag = state.get(slotKey);
+        if (tag == null) return Optional.empty();
+
+        return ItemStack.CODEC.parse(ops, tag).result().flatMap(stack -> {
+            if (!(stack.getItem() instanceof ModuleItem moduleItem)) return Optional.empty();
+            boolean missingModuleId = ModuleItem.getModuleId(stack).isBlank();
+            Module module = moduleItem.createModule();
+            String stateKey = moduleStateKey(stack, module);
+            if (missingModuleId) {
+                ItemStack.CODEC.encodeStart(ops, stack).result()
+                        .ifPresent(encoded -> state.put(slotKey, encoded));
+                ctx.markDirtyAndSync();
+            }
+            return Optional.of(new DynamicModule(module, stateKey));
+        });
+    }
+
     private List<DynamicModule> getDynamicModuleEntries(PipeContext ctx) {
         List<DynamicModule> modules = new ArrayList<>();
-        var state = ctx.moduleState(STATE_KEY);
         RegistryOps<Tag> ops = ctx.world().registryAccess().createSerializationContext(NbtOps.INSTANCE);
         for (int slot = 0; slot < maxSlots; slot++) {
-            String slotKey = String.valueOf(slot);
-            Tag tag = state.get(slotKey);
-            if (tag == null) continue;
-            ItemStack.CODEC.parse(ops, tag).result().ifPresent(stack -> {
-                if (!(stack.getItem() instanceof ModuleItem moduleItem)) return;
-                boolean missingModuleId = ModuleItem.getModuleId(stack).isBlank();
-                Module module = moduleItem.createModule();
-                String stateKey = moduleStateKey(stack, module);
-                if (missingModuleId) {
-                    ItemStack.CODEC.encodeStart(ops, stack).result()
-                            .ifPresent(encoded -> state.put(slotKey, encoded));
-                    ctx.markDirtyAndSync();
-                }
-                modules.add(new DynamicModule(module, stateKey));
-            });
+            loadSlot(ctx, slot, ops).ifPresent(modules::add);
         }
         return modules;
     }

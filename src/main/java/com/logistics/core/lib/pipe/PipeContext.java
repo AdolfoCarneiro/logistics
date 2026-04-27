@@ -27,6 +27,14 @@ public record PipeContext(
         this(world, pos, state, blockEntity, Map.of());
     }
 
+    /**
+     * Returns a new context that routes {@code module}'s state through {@code stateKey} instead
+     * of the class-level default. Uses {@link IdentityHashMap} intentionally: the lookup relies on
+     * object identity, not equality. The exact instance passed here must be the same instance that
+     * later calls {@code ctx.moduleState(this)} — if {@link com.logistics.pipe.ChassisPipe#getDynamicModuleEntries}
+     * is ever called twice for the same slot it would produce a different instance and the scoped
+     * key would silently fall back to the class-level default.
+     */
     public PipeContext withModuleStateKey(Module module, String stateKey) {
         IdentityHashMap<Module, String> keys = new IdentityHashMap<>(moduleStateKeys);
         keys.put(module, stateKey);

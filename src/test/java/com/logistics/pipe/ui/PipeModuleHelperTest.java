@@ -8,6 +8,7 @@ import com.logistics.core.lib.pipe.PipeContext;
 import com.logistics.core.lib.pipe.TravelingItem;
 import com.logistics.pipe.ChassisPipe;
 import com.logistics.pipe.item.ModuleItem;
+import com.logistics.pipe.modules.ExtractionModule;
 import com.logistics.pipe.modules.SupplierModule;
 import com.logistics.test.MinecraftTestEnvironment;
 import net.minecraft.core.BlockPos;
@@ -51,6 +52,30 @@ class PipeModuleHelperTest extends MinecraftTestEnvironment {
         assertThat(second.getSupplyConfigs(secondContext))
                 .containsExactly(new SupplierModule.SupplyConfig("minecraft:gold_ingot", 16));
         assertThat(first.getSupplyConfigs(baseContext)).isEmpty();
+        assertThat(firstStateKey).isNotEqualTo(secondStateKey);
+        assertThat(ModuleItem.getModuleId(firstStack)).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("scoped contexts keep duplicate extraction module state separate")
+    void scopedContexts_keepDuplicateExtractionModuleStateSeparate() {
+        ExtractionModule first = new ExtractionModule();
+        ExtractionModule second = new ExtractionModule();
+        ItemStack firstStack = new ItemStack(Items.STICK);
+        ItemStack secondStack = new ItemStack(Items.STICK);
+        FakePipeAccess pipe = new FakePipeAccess();
+        PipeContext baseContext = new PipeContext(null, BlockPos.ZERO, null, pipe);
+        String firstStateKey = ChassisPipe.moduleStateKey(firstStack, first);
+        String secondStateKey = ChassisPipe.moduleStateKey(secondStack, second);
+
+        PipeContext firstContext = baseContext.withModuleStateKey(first, firstStateKey);
+        PipeContext secondContext = baseContext.withModuleStateKey(second, secondStateKey);
+
+        firstContext.saveInt(first, "extract_direction", 0);
+        secondContext.saveInt(second, "extract_direction", 3);
+
+        assertThat(firstContext.getInt(first, "extract_direction", -1)).isEqualTo(0);
+        assertThat(secondContext.getInt(second, "extract_direction", -1)).isEqualTo(3);
         assertThat(firstStateKey).isNotEqualTo(secondStateKey);
         assertThat(ModuleItem.getModuleId(firstStack)).isNotBlank();
     }
