@@ -1,5 +1,6 @@
 {
   "parent": "logistics:block/pipe/copper_transport_pipe_core",
+  "render_type": "minecraft:cutout",
   "textures": {
     "particle": "logistics:block/automation/quarry_frame_core",
     "texture": "logistics:block/automation/quarry_frame_core"
